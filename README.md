@@ -88,22 +88,20 @@ module is `deviceinfo` (`get_device_info`).
    ./gradlew testDebugUnitTest    # run JVM unit tests
    ./gradlew installDebug         # install on a connected device/emulator
    ```
-2. Run the app and tap **Start tunnel**. Today that starts the foreground
-   service with a placeholder config; wire up a real gateway URL and token next.
+2. Run the app, fill in the gateway WebSocket URL and your SealGate API key
+   (from the dashboard), and tap **Start tunnel**. Settings persist across
+   restarts; the ongoing notification shows the live connection state.
 
-## Implementing the tunnel
+## Adding a hardware module
 
-The transport is intentionally left as a `TODO` so you can drop in your own
-client. In `TunnelService.connect`:
+Each "stdio server" on mobile is an in-process Kotlin module. To add one:
 
-1. Open a WebSocket to `TunnelConfig.gatewayUrl` with a bearer auth header.
-2. Launch the local stdio MCP server process.
-3. Pump bytes both ways: gateway frames → process `stdin`, process `stdout` →
-   gateway, translating stdio framing to the gateway's HTTP/SSE transport.
-4. Reconnect with exponential backoff on disconnect.
-
-Then replace the placeholder config in `MainActivity` with values read from
-app settings (e.g. Jetpack DataStore).
+1. Extend `BaseMcpModule` (see `mcp/DeviceInfoModule.kt`) — supply the tool
+   descriptors and the `tools/call` handler; the MCP lifecycle
+   (`initialize`, `ping`, `tools/list`) is handled for you.
+2. Register it in the `modules` list in `TunnelService.connect`.
+3. Enable a server with that module's name for the device in the SealGate
+   dashboard; the tunnel binds it by name and acks the spawn.
 
 ## License
 
