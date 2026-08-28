@@ -128,7 +128,7 @@ class TunnelService : LifecycleService() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.tunnel_notification_title))
             .setContentText(text)
-            .setSmallIcon(R.drawable.ic_tunnel)
+            .setSmallIcon(R.drawable.ic_stat_sealgate)
             .setOngoing(true)
             .setContentIntent(openApp)
             .build()
