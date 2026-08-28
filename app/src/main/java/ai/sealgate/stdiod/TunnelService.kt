@@ -14,10 +14,12 @@ import androidx.lifecycle.lifecycleScope
 import ai.sealgate.stdiod.mcp.AndroidBatterySource
 import ai.sealgate.stdiod.mcp.AndroidBluetoothSource
 import ai.sealgate.stdiod.mcp.AndroidDeviceInfo
+import ai.sealgate.stdiod.mcp.AndroidUsbSource
 import ai.sealgate.stdiod.mcp.AndroidWifiSource
 import ai.sealgate.stdiod.mcp.BatteryModule
 import ai.sealgate.stdiod.mcp.BluetoothModule
 import ai.sealgate.stdiod.mcp.DeviceInfoModule
+import ai.sealgate.stdiod.mcp.UsbModule
 import ai.sealgate.stdiod.mcp.WifiModule
 import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
 import ai.sealgate.stdiod.tunnel.TunnelClient
@@ -83,6 +85,7 @@ class TunnelService : LifecycleService() {
                 BatteryModule(AndroidBatterySource(this)),
                 WifiModule(AndroidWifiSource(this)),
                 BluetoothModule(AndroidBluetoothSource(this)),
+                UsbModule(AndroidUsbSource(this)),
             ),
             scope = lifecycleScope,
         )

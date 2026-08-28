@@ -50,7 +50,7 @@ spawn error.
   (`TunnelFrame.kt`), WebSocket client + reconnect (`TunnelClient.kt`),
   persisted device identity (`DeviceIdentityStore.kt`).
 - `app/src/main/java/ai/sealgate/stdiod/mcp/` — in-process MCP modules
-  (`deviceinfo`, `battery`, `wifi`, `bluetooth`); add a new hardware module by
+  (`deviceinfo`, `battery`, `wifi`, `bluetooth`, `usb`); add a new hardware module by
   extending `BaseMcpModule` and registering it in `TunnelService.connect()`.
   `bluetooth` is a write/control module: besides the read tools
   (`get_bluetooth_status`, `list_bonded_devices`) it does BLE scan + GATT
@@ -65,6 +65,15 @@ spawn error.
   "length_delimited"` reassembles varint-length-prefixed frames across
   notifications. Adapter on/off is deliberately excluded (Android forbids it for
   third-party apps).
+  `usb` is a USB host (USB-OTG) control module (`UsbModule` + `AndroidUsbSource`
+  over `android.hardware.usb.UsbManager`): `usb_list_devices`,
+  `usb_request_permission`, `usb_open`, `usb_bulk_transfer`,
+  `usb_control_transfer`, `usb_close` — raw bulk/control transfers with hex
+  payloads. USB host needs no manifest permission but requires **per-device
+  runtime permission** granted via a system dialog (`usb_request_permission`),
+  which every I/O tool reports in-band when missing; the manifest declares
+  `<uses-feature android:name="android.hardware.usb.host" android:required="false" />`.
+  Needs a USB-OTG adapter.
   Hardware access goes behind a small source interface (e.g. `BatterySource`)
   with the Android implementation in its own `Android*` file, so module logic
   stays JVM-testable with fakes.
