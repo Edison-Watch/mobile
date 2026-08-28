@@ -18,8 +18,14 @@ daemon (protocol v2; see `schema/tunnel-protocol.json`). Where the desktop
 daemon spawns `npx`/`uvx` subprocesses, this app answers MCP requests from
 **in-process Kotlin modules** — a phone can't spawn stdio servers. The built-in
 modules are `deviceinfo` (`get_device_info`), `battery` (`get_battery_status`),
-`wifi` (`get_wifi_status`), and `bluetooth` (`get_bluetooth_status`,
-`list_bonded_devices`).
+`wifi` (`get_wifi_status`), and `bluetooth`. The `bluetooth` module reads state
+(`get_bluetooth_status`, `list_bonded_devices`) **and** performs the write/control
+actions a normal, unprivileged APK is permitted: BLE discovery and GATT
+read/write (`bt_scan`, `bt_gatt_connect`, `bt_gatt_services`, `bt_gatt_read`,
+`bt_gatt_write`, `bt_gatt_disconnect`), classic serial RFCOMM/SPP streaming
+(`bt_spp_connect`, `bt_spp_send`, `bt_spp_recv`, `bt_spp_disconnect`), and
+pairing (`bt_pair`, `bt_unpair`). Turning the adapter on/off is intentionally
+**not** offered — Android forbids it for third-party apps (a no-op since API 33).
 
 ## Architecture
 
@@ -64,7 +70,7 @@ modules are `deviceinfo` (`get_device_info`), `battery` (`get_battery_status`),
 │   │   │   ├── TunnelService.kt     # foreground service; owns TunnelClient
 │   │   │   ├── TunnelConfig.kt      # gateway URL + auth token value type
 │   │   │   ├── tunnel/              # wire protocol codec + WebSocket client
-│   │   │   └── mcp/                 # in-process MCP modules (deviceinfo, battery, wifi, bluetooth)
+│   │   │   └── mcp/                 # in-process MCP modules (deviceinfo, battery, wifi, bluetooth read + control)
 │   │   └── res/                     # layout, strings, theme, adaptive icon
 │   └── src/test/                    # JVM tests incl. golden-frame round trips
 ├── schema/

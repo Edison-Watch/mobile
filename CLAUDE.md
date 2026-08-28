@@ -52,6 +52,13 @@ spawn error.
 - `app/src/main/java/ai/sealgate/stdiod/mcp/` — in-process MCP modules
   (`deviceinfo`, `battery`, `wifi`, `bluetooth`); add a new hardware module by
   extending `BaseMcpModule` and registering it in `TunnelService.connect()`.
+  `bluetooth` is a write/control module: besides the read tools
+  (`get_bluetooth_status`, `list_bonded_devices`) it does BLE scan + GATT
+  read/write (`bt_scan`, `bt_gatt_*`), classic RFCOMM/SPP (`bt_spp_*`), and
+  pairing (`bt_pair`/`bt_unpair`). The Android impl bridges the async GATT
+  callbacks / blocking RFCOMM IO to the synchronous module with
+  latches/timeouts and holds live connections by address. Adapter on/off is
+  deliberately excluded (Android forbids it for third-party apps).
   Hardware access goes behind a small source interface (e.g. `BatterySource`)
   with the Android implementation in its own `Android*` file, so module logic
   stays JVM-testable with fakes.
