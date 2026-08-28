@@ -16,16 +16,38 @@ private class FakeBluetooth(
     override val adapterPresent: Boolean = true,
     override val enabled: Boolean = true,
     override val hasConnectPermission: Boolean = true,
+    override val hasScanPermission: Boolean = true,
     private val bonded: List<BondedDevice> = emptyList(),
-) : BluetoothSource {
+) : BluetoothControlSource {
     override fun bondedDevices() = bonded
+
+    // The read-only tools never reach these; stub them for the interface.
+    override fun scan(timeoutMs: Long) = ScanResult()
+    override fun pair(address: String, timeoutMs: Long) = BtOpResult()
+    override fun unpair(address: String) = BtOpResult()
+    override fun gattConnect(address: String, timeoutMs: Long) = GattServicesResult()
+    override fun gattServices(address: String) = GattServicesResult()
+    override fun gattRead(address: String, service: String, characteristic: String, timeoutMs: Long) = GattReadResult()
+    override fun gattWrite(
+        address: String,
+        service: String,
+        characteristic: String,
+        value: ByteArray,
+        withResponse: Boolean,
+        timeoutMs: Long,
+    ) = BtOpResult()
+    override fun gattDisconnect(address: String) = BtOpResult()
+    override fun sppConnect(address: String, uuid: String, timeoutMs: Long) = BtOpResult()
+    override fun sppSend(address: String, value: ByteArray, timeoutMs: Long) = BtOpResult()
+    override fun sppRecv(address: String, timeoutMs: Long, maxBytes: Int) = SppRecvResult()
+    override fun sppDisconnect(address: String) = BtOpResult()
 }
 
 class BluetoothModuleTest {
 
     private fun rpc(body: String): JsonObject = Json.parseToJsonElement(body).jsonObject
 
-    private fun call(source: BluetoothSource, toolName: String): JsonObject {
+    private fun call(source: BluetoothControlSource, toolName: String): JsonObject {
         val response = BluetoothModule(source).handle(
             rpc(
                 """{"jsonrpc":"2.0","id":1,"method":"tools/call",
@@ -39,12 +61,27 @@ class BluetoothModuleTest {
         result["content"]!!.jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content!!
 
     @Test
-    fun toolsListAdvertisesBothTools() {
+    fun toolsListAdvertisesAllTools() {
         val module = BluetoothModule(FakeBluetooth())
         val response = module.handle(rpc("""{"jsonrpc":"2.0","id":2,"method":"tools/list"}"""))!!
         val tools = response["result"]!!.jsonObject["tools"]!!.jsonArray
         assertEquals(
-            listOf("get_bluetooth_status", "list_bonded_devices"),
+            listOf(
+                "get_bluetooth_status",
+                "list_bonded_devices",
+                "bt_scan",
+                "bt_pair",
+                "bt_unpair",
+                "bt_gatt_connect",
+                "bt_gatt_services",
+                "bt_gatt_read",
+                "bt_gatt_write",
+                "bt_gatt_disconnect",
+                "bt_spp_connect",
+                "bt_spp_send",
+                "bt_spp_recv",
+                "bt_spp_disconnect",
+            ),
             tools.map { it.jsonObject["name"]?.jsonPrimitive?.content },
         )
     }

@@ -26,8 +26,8 @@ class MainActivity : AppCompatActivity() {
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
 
-    private val requestBluetoothConnect =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+    private val requestBluetoothPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* best effort */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,14 +96,19 @@ class MainActivity : AppCompatActivity() {
         if (!granted) requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    // Best effort, like notifications: the bluetooth module also reports the
+    // Best effort, like notifications: the bluetooth module also reports a
     // missing "Nearby devices" permission in-band if the user declines here.
+    // From Android 12 the control tools need both BLUETOOTH_CONNECT (connect,
+    // pair, GATT, SPP) and BLUETOOTH_SCAN (bt_scan); request whichever is not
+    // yet granted.
     private fun maybeRequestBluetoothPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
-        val granted = ContextCompat.checkSelfPermission(
-            this,
+        val wanted = listOf(
             Manifest.permission.BLUETOOTH_CONNECT,
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!granted) requestBluetoothConnect.launch(Manifest.permission.BLUETOOTH_CONNECT)
+            Manifest.permission.BLUETOOTH_SCAN,
+        ).filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (wanted.isNotEmpty()) requestBluetoothPermissions.launch(wanted.toTypedArray())
     }
 }
