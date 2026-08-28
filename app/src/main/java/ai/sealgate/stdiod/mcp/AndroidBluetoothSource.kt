@@ -499,9 +499,12 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
         value: ByteArray,
         conn: GattConnection,
         timeoutMs: Long,
-    ): String? {
+    ): String? = try {
         val latch = CountDownLatch(1)
         conn.beginDescriptorWrite(latch)
+        // The writeDescriptor calls need BLUETOOTH_CONNECT; handle a revoked
+        // permission here (not just in callers) so lint sees it guarded and the
+        // helper degrades to an error reason instead of throwing.
         val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             gatt.writeDescriptor(descriptor, value) == BluetoothStatusCodes.SUCCESS
         } else {
@@ -511,10 +514,14 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
                 gatt.writeDescriptor(descriptor)
             }
         }
-        if (!started) return "failed to start CCCD write"
-        if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) return "timed out writing CCCD descriptor"
-        if (!conn.descriptorOk) return "CCCD write failed"
-        return null
+        when {
+            !started -> "failed to start CCCD write"
+            !latch.await(timeoutMs, TimeUnit.MILLISECONDS) -> "timed out writing CCCD descriptor"
+            !conn.descriptorOk -> "CCCD write failed"
+            else -> null
+        }
+    } catch (e: SecurityException) {
+        "bluetooth connect permission denied: ${e.message}"
     }
 
     /** Block up to [idleTimeoutMs] for the first event, then take whatever else
