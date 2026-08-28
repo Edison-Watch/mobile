@@ -9,6 +9,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Post the ongoing "tunnel connected" notification (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The wifi module reads radio state, link speed, and SSID. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- The bluetooth module reads adapter state and bonded devices:
+         legacy install-time permission up to Android 11, the
+         "Nearby devices" runtime permission from Android 12. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:allowBackup="true"

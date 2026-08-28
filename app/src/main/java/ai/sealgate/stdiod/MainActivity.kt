@@ -26,12 +26,16 @@ class MainActivity : AppCompatActivity() {
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
 
+    private val requestBluetoothConnect =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         maybeRequestNotificationPermission()
+        maybeRequestBluetoothPermission()
 
         val stored = TunnelSettings.load(this)
         binding.gatewayUrlInput.setText(stored.gatewayUrl)
@@ -90,5 +94,16 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    // Best effort, like notifications: the bluetooth module also reports the
+    // missing "Nearby devices" permission in-band if the user declines here.
+    private fun maybeRequestBluetoothPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val granted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.BLUETOOTH_CONNECT,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!granted) requestBluetoothConnect.launch(Manifest.permission.BLUETOOTH_CONNECT)
     }
 }
