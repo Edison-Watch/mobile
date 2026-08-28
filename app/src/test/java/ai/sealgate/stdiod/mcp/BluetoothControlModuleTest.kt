@@ -68,6 +68,32 @@ private class FakeBluetoothControl(
     }
 
     override fun gattDisconnect(address: String) = gattDisconnectResult
+    override fun gattRequestMtu(address: String, mtu: Int, timeoutMs: Long) = GattMtuResult(mtu = mtu)
+    override fun gattSubscribe(address: String, service: String, characteristic: String, mode: String, timeoutMs: Long) =
+        GattSubscribeResult()
+    override fun gattNotificationsPoll(
+        address: String,
+        service: String,
+        characteristic: String,
+        maxEvents: Int,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ) = GattNotificationsResult()
+    override fun gattUnsubscribe(address: String, service: String, characteristic: String) = BtOpResult()
+    override fun gattWriteWait(
+        address: String,
+        txService: String,
+        txCharacteristic: String,
+        value: ByteArray,
+        rxService: String,
+        rxCharacteristic: String,
+        withResponse: Boolean,
+        timeoutMs: Long,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ) = GattWriteWaitResult()
     override fun sppConnect(address: String, uuid: String, timeoutMs: Long) = sppConnectResult
 
     override fun sppSend(address: String, value: ByteArray, timeoutMs: Long): BtOpResult {

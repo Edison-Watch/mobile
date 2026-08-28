@@ -22,10 +22,47 @@ modules are `deviceinfo` (`get_device_info`), `battery` (`get_battery_status`),
 (`get_bluetooth_status`, `list_bonded_devices`) **and** performs the write/control
 actions a normal, unprivileged APK is permitted: BLE discovery and GATT
 read/write (`bt_scan`, `bt_gatt_connect`, `bt_gatt_services`, `bt_gatt_read`,
-`bt_gatt_write`, `bt_gatt_disconnect`), classic serial RFCOMM/SPP streaming
+`bt_gatt_write`, `bt_gatt_disconnect`), GATT notify/indicate for
+request/response with devices that reply on an RX characteristic —
+`bt_gatt_request_mtu`, `bt_gatt_subscribe`, `bt_gatt_notifications_poll`,
+`bt_gatt_unsubscribe`, and the `bt_gatt_write_wait` primitive (write TX, collect
+the RX reply) — classic serial RFCOMM/SPP streaming
 (`bt_spp_connect`, `bt_spp_send`, `bt_spp_recv`, `bt_spp_disconnect`), and
 pairing (`bt_pair`, `bt_unpair`). Turning the adapter on/off is intentionally
 **not** offered — Android forbids it for third-party apps (a no-op since API 33).
+
+The notify/indicate tools unblock Flipper Zero RPC, Nordic UART (NUS),
+battery-level notify (`0x2a19`) and any UART-over-BLE sensor. `bt_gatt_subscribe`
+writes the CCCD descriptor (`0x2902`) and buffers a device's notifications into a
+per-characteristic queue that `bt_gatt_notifications_poll` drains (never silently
+dropping — it reports an `overflow_count`). Both poll and `bt_gatt_write_wait`
+accept `decode: "length_delimited"`, which reassembles varint-length-prefixed
+frames (protobuf-style framing, as Flipper/NUS use) across notifications and
+returns complete `frames` alongside the raw events. `bt_gatt_request_mtu` raises
+the ATT MTU (Android defaults to 23, only 20 usable) so larger payloads and
+Flipper screen frames fit.
+
+Example — talk to a Flipper over its serial-RPC characteristic:
+
+```jsonc
+// 1. connect, then raise the MTU for large frames
+bt_gatt_connect      { "address": "80:E1:26:00:11:22" }
+bt_gatt_request_mtu  { "address": "80:E1:26:00:11:22", "mtu": 517 }
+// 2. subscribe to the RX (indicate) characteristic
+bt_gatt_subscribe    { "address": "80:E1:26:00:11:22",
+                       "service": "19ed82ae-ed21-4c9d-4145-228e61fe0000",   // Flipper serial service
+                       "characteristic": "19ed82ae-ed21-4c9d-4145-228e62fe0000", // RX (indicate)
+                       "mode": "indicate" }
+// 3. write a length-delimited protobuf frame to TX and collect the reply
+bt_gatt_write_wait   { "address": "80:E1:26:00:11:22",
+                       "tx_service": "19ed82ae-ed21-4c9d-4145-228e61fe0000",
+                       "tx_characteristic": "19ed82ae-ed21-4c9d-4145-228e60fe0000", // TX (write)
+                       "value_hex": "0a02087b",
+                       "rx_service": "19ed82ae-ed21-4c9d-4145-228e61fe0000",
+                       "rx_characteristic": "19ed82ae-ed21-4c9d-4145-228e62fe0000",
+                       "decode": "length_delimited" }
+// -> { "tx_written": true, "events": [...], "frames": ["..."], "overflow_count": 0 }
+```
 
 ## Architecture
 

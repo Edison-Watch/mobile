@@ -77,6 +77,63 @@ data class SppRecvResult(
 data class BtOpResult(val error: String? = null)
 
 /**
+ * One notification/indication delivered on a subscribed RX characteristic.
+ * [seq] is a monotonic per-(address,characteristic) counter so consumers can
+ * detect gaps; [timestampMs] is wall-clock at enqueue time.
+ */
+data class GattNotification(
+    val timestampMs: Long,
+    val address: String,
+    val service: String,
+    val characteristic: String,
+    val value: ByteArray,
+    val seq: Long,
+)
+
+/** Result of `bt_gatt_request_mtu`; [mtu] is the negotiated ATT MTU. */
+data class GattMtuResult(val mtu: Int = 0, val error: String? = null)
+
+/**
+ * Result of `bt_gatt_subscribe`. [mode] is the concrete mode actually used
+ * (`notify`/`indicate`), which matters when the caller asked for `auto`.
+ */
+data class GattSubscribeResult(
+    val mode: String = "notify",
+    val cccdWritten: Boolean = false,
+    val error: String? = null,
+)
+
+/**
+ * Result of draining buffered notifications. [overflowCount] reports how many
+ * events the bounded queue had to drop (never silently); [frames] is populated
+ * only when the caller asked for `length_delimited` decoding.
+ */
+data class GattNotificationsResult(
+    val events: List<GattNotification> = emptyList(),
+    val overflowCount: Int = 0,
+    val frames: List<ByteArray> = emptyList(),
+    val error: String? = null,
+)
+
+/**
+ * Result of `bt_gatt_write_wait`: the TX write plus whatever RX notifications
+ * arrived. [timedOut] is set when the collection window elapsed with no events
+ * (the tool still returns, it does not crash).
+ */
+data class GattWriteWaitResult(
+    val events: List<GattNotification> = emptyList(),
+    val overflowCount: Int = 0,
+    val frames: List<ByteArray> = emptyList(),
+    val txWritten: Boolean = false,
+    val timedOut: Boolean = false,
+    val error: String? = null,
+)
+
+/** Frames extracted from a varint-length-prefixed stream, plus the trailing
+ *  bytes of an incomplete frame to carry into the next call. */
+data class LengthDelimitedParse(val frames: List<ByteArray>, val remainder: ByteArray)
+
+/**
  * What the read-only bluetooth tools report. Behind an interface so the module
  * is testable on the JVM, away from `BluetoothAdapter` and permission checks.
  */
@@ -135,6 +192,68 @@ interface BluetoothControlSource : BluetoothSource {
 
     /** Close and evict the GATT connection to [address]. */
     fun gattDisconnect(address: String): BtOpResult
+
+    /**
+     * Negotiate a larger ATT MTU (up to [mtu]); returns the value the peer
+     * agreed to. Android defaults to 23 (20 usable), too small for many
+     * payloads.
+     */
+    fun gattRequestMtu(address: String, mtu: Int, timeoutMs: Long): GattMtuResult
+
+    /**
+     * Enable notifications/indications on [characteristic]: turn on the local
+     * dispatch and write the CCCD descriptor. [mode] is `notify` | `indicate` |
+     * `auto`; `auto` picks indicate when the characteristic advertises it, else
+     * notify, and errors when it advertises neither. Starts (or resets) the
+     * per-(address,characteristic) event queue.
+     */
+    fun gattSubscribe(
+        address: String,
+        service: String,
+        characteristic: String,
+        mode: String,
+        timeoutMs: Long,
+    ): GattSubscribeResult
+
+    /**
+     * Drain buffered notifications for [characteristic], blocking up to
+     * [idleTimeoutMs] for the first event and then taking whatever else has
+     * queued (capped by [maxEvents]/[maxBytes]). [decode] is `raw` |
+     * `length_delimited`. Errors when there is no active subscription.
+     */
+    fun gattNotificationsPoll(
+        address: String,
+        service: String,
+        characteristic: String,
+        maxEvents: Int,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ): GattNotificationsResult
+
+    /** Disable notifications/indications on [characteristic] (CCCD 0x0000) and
+     *  clear its queue. Idempotent: unsubscribing when not subscribed succeeds. */
+    fun gattUnsubscribe(address: String, service: String, characteristic: String): BtOpResult
+
+    /**
+     * Request/response primitive: ensure an RX subscription exists (auto-mode
+     * if not), write the TX bytes, then collect RX notifications until
+     * [maxBytes] is reached, [idleTimeoutMs] elapses with no new event, or
+     * [timeoutMs] overall.
+     */
+    fun gattWriteWait(
+        address: String,
+        txService: String,
+        txCharacteristic: String,
+        value: ByteArray,
+        rxService: String,
+        rxCharacteristic: String,
+        withResponse: Boolean,
+        timeoutMs: Long,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ): GattWriteWaitResult
 
     /** Open an RFCOMM/SPP socket to [address] on [uuid] and hold it. */
     fun sppConnect(address: String, uuid: String, timeoutMs: Long): BtOpResult
@@ -219,6 +338,72 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
             },
         )
         add(
+            descriptor(
+                "bt_gatt_request_mtu",
+                "Negotiate a larger ATT MTU on a connected GATT peripheral. Android's default is 23 bytes (20 usable) - too small for large payloads or Flipper screen frames. Returns the negotiated MTU.",
+            ) {
+                stringProp("address", "Device hardware address of a connected peripheral.", required = true)
+                intProp("mtu", "Desired ATT MTU (default 517, clamped to 23..517).")
+                intProp("timeout_ms", "How long to wait for negotiation, in ms.")
+            },
+        )
+        add(
+            descriptor(
+                "bt_gatt_subscribe",
+                "Subscribe to notifications/indications on a GATT characteristic so a device's replies (Flipper RPC, Nordic UART/NUS, battery-level notify, any UART-over-BLE sensor) are buffered. Writes the CCCD descriptor and starts a per-characteristic event queue drained by bt_gatt_notifications_poll.",
+            ) {
+                stringProp("address", "Device hardware address of a connected peripheral.", required = true)
+                stringProp("service", "Service UUID.", required = true)
+                stringProp("characteristic", "Characteristic UUID.", required = true)
+                stringProp("mode", "notify | indicate | auto (default auto: indicate if advertised, else notify).")
+                boolProp("enable", "Whether to enable (default true); false unsubscribes.")
+                intProp("timeout_ms", "How long to wait for the CCCD write, in ms.")
+            },
+        )
+        add(
+            descriptor(
+                "bt_gatt_notifications_poll",
+                "Drain buffered notifications from a subscribed characteristic. Blocks up to idle_timeout_ms for the first event, then returns whatever else has queued. Reports overflow_count when the bounded queue dropped events.",
+            ) {
+                stringProp("address", "Device hardware address of a connected peripheral.", required = true)
+                stringProp("service", "Service UUID.", required = true)
+                stringProp("characteristic", "Characteristic UUID.", required = true)
+                intProp("max_events", "Maximum events to return (default 64).")
+                intProp("idle_timeout_ms", "How long to wait for the first event, in ms (default 2000).")
+                intProp("max_bytes", "Maximum total value bytes to return.")
+                stringProp("return_format", "hex | utf8 (default hex).")
+                stringProp("decode", "raw | length_delimited (default raw). length_delimited reassembles varint-length-prefixed frames across notifications.")
+            },
+        )
+        add(
+            descriptor("bt_gatt_unsubscribe", "Unsubscribe from a characteristic's notifications/indications (CCCD 0x0000) and clear its queue. Idempotent.") {
+                stringProp("address", "Device hardware address of a connected peripheral.", required = true)
+                stringProp("service", "Service UUID.", required = true)
+                stringProp("characteristic", "Characteristic UUID.", required = true)
+            },
+        )
+        add(
+            descriptor(
+                "bt_gatt_write_wait",
+                "Request/response over BLE: write bytes to a TX characteristic and collect the reply notifications from an RX characteristic. Auto-subscribes to RX if needed. Returns the collected events plus tx_written.",
+            ) {
+                stringProp("address", "Device hardware address of a connected peripheral.", required = true)
+                stringProp("service", "TX service UUID (alias of tx_service).")
+                stringProp("characteristic", "TX characteristic UUID (alias of tx_characteristic).")
+                stringProp("tx_service", "TX service UUID.")
+                stringProp("tx_characteristic", "TX characteristic UUID.")
+                stringProp("value_hex", "Bytes to write to TX, as a hex string.", required = true)
+                stringProp("rx_service", "RX service UUID (where replies arrive).", required = true)
+                stringProp("rx_characteristic", "RX characteristic UUID.", required = true)
+                boolProp("with_response", "Whether the TX write requests a response (default true).")
+                intProp("timeout_ms", "Overall time budget, in ms.")
+                intProp("idle_timeout_ms", "Stop after this long with no new RX event, in ms (default 2000).")
+                intProp("max_bytes", "Stop once this many RX value bytes are collected.")
+                stringProp("return_format", "hex | utf8 (default hex).")
+                stringProp("decode", "raw | length_delimited (default raw).")
+            },
+        )
+        add(
             descriptor("bt_gatt_disconnect", "Close the held GATT connection to a peripheral.") {
                 stringProp("address", "Device hardware address.", required = true)
             },
@@ -266,6 +451,11 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
             "bt_gatt_services" -> btGattServices(id, arguments)
             "bt_gatt_read" -> btGattRead(id, arguments)
             "bt_gatt_write" -> btGattWrite(id, arguments)
+            "bt_gatt_request_mtu" -> btGattRequestMtu(id, arguments)
+            "bt_gatt_subscribe" -> btGattSubscribe(id, arguments)
+            "bt_gatt_notifications_poll" -> btGattNotificationsPoll(id, arguments)
+            "bt_gatt_unsubscribe" -> btGattUnsubscribe(id, arguments)
+            "bt_gatt_write_wait" -> btGattWriteWait(id, arguments)
             "bt_gatt_disconnect" -> btGattDisconnect(id, arguments)
             "bt_spp_connect" -> btSppConnect(id, arguments)
             "bt_spp_send" -> btSppSend(id, arguments)
@@ -415,6 +605,164 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
                 put("bytes", JsonPrimitive(bytes.size))
             }
         }
+    }
+
+    // -- GATT notify / indicate --------------------------------------------
+
+    private fun btGattRequestMtu(id: JsonElement, arguments: JsonObject): JsonObject {
+        preflight(id)?.let { return it }
+        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
+        // Android's default ATT MTU is 23 (20 usable); Flipper screen frames and
+        // large protobuf payloads need more, so 517 (the BLE max) is the default.
+        val requested = (intArg(arguments, "mtu") ?: DEFAULT_MTU).coerceIn(MIN_MTU, MAX_MTU)
+        val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
+        val result = source.gattRequestMtu(address, requested, timeout)
+        result.error?.let { return err(id, it) }
+        val payload = buildJsonObject {
+            put("address", JsonPrimitive(address))
+            put("mtu", JsonPrimitive(result.mtu))
+        }
+        return JsonRpc.textToolResult(id, payload.toString())
+    }
+
+    private fun btGattSubscribe(id: JsonElement, arguments: JsonObject): JsonObject {
+        preflight(id)?.let { return it }
+        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
+        val service = stringArg(arguments, "service") ?: return err(id, "missing required argument: service")
+        val characteristic = stringArg(arguments, "characteristic")
+            ?: return err(id, "missing required argument: characteristic")
+        // enable=false is an unsubscribe by another name.
+        if (boolArg(arguments, "enable") == false) {
+            return mapOp(id, source.gattUnsubscribe(address, service, characteristic)) {
+                unsubscribePayload(address, service, characteristic)
+            }
+        }
+        val mode = (stringArg(arguments, "mode") ?: "auto").lowercase()
+        if (mode !in SUBSCRIBE_MODES) {
+            return err(id, "invalid mode: expected notify | indicate | auto, got \"$mode\"")
+        }
+        val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
+        val result = source.gattSubscribe(address, service, characteristic, mode, timeout)
+        result.error?.let { return err(id, it) }
+        val payload = buildJsonObject {
+            put("subscribed", JsonPrimitive(true))
+            put("mode", JsonPrimitive(result.mode))
+            put("cccd_written", JsonPrimitive(result.cccdWritten))
+            put("address", JsonPrimitive(address))
+            put("service", JsonPrimitive(service))
+            put("characteristic", JsonPrimitive(characteristic))
+        }
+        return JsonRpc.textToolResult(id, payload.toString())
+    }
+
+    private fun btGattNotificationsPoll(id: JsonElement, arguments: JsonObject): JsonObject {
+        preflight(id)?.let { return it }
+        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
+        val service = stringArg(arguments, "service") ?: return err(id, "missing required argument: service")
+        val characteristic = stringArg(arguments, "characteristic")
+            ?: return err(id, "missing required argument: characteristic")
+        val maxEvents = intArg(arguments, "max_events")?.takeIf { it > 0 } ?: DEFAULT_MAX_EVENTS
+        val idleTimeout = clampTimeout(intArg(arguments, "idle_timeout_ms"), default = 2000, max = 60_000)
+        val maxBytes = intArg(arguments, "max_bytes")?.takeIf { it > 0 } ?: DEFAULT_MAX_NOTIFY_BYTES
+        val returnFormat = returnFormat(arguments) ?: return err(id, RETURN_FORMAT_MESSAGE)
+        val decode = decodeMode(arguments) ?: return err(id, DECODE_MESSAGE)
+        val result = source.gattNotificationsPoll(address, service, characteristic, maxEvents, idleTimeout, maxBytes, decode)
+        result.error?.let { return err(id, it) }
+        return JsonRpc.textToolResult(id, notificationsPayload(result.events, result.overflowCount, result.frames, returnFormat).toString())
+    }
+
+    private fun btGattUnsubscribe(id: JsonElement, arguments: JsonObject): JsonObject {
+        preflight(id)?.let { return it }
+        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
+        val service = stringArg(arguments, "service") ?: return err(id, "missing required argument: service")
+        val characteristic = stringArg(arguments, "characteristic")
+            ?: return err(id, "missing required argument: characteristic")
+        return mapOp(id, source.gattUnsubscribe(address, service, characteristic)) {
+            unsubscribePayload(address, service, characteristic)
+        }
+    }
+
+    private fun btGattWriteWait(id: JsonElement, arguments: JsonObject): JsonObject {
+        preflight(id)?.let { return it }
+        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
+        val txService = stringArg(arguments, "tx_service") ?: stringArg(arguments, "service")
+            ?: return err(id, "missing required argument: tx_service (or service)")
+        val txCharacteristic = stringArg(arguments, "tx_characteristic") ?: stringArg(arguments, "characteristic")
+            ?: return err(id, "missing required argument: tx_characteristic (or characteristic)")
+        val rxService = stringArg(arguments, "rx_service") ?: return err(id, "missing required argument: rx_service")
+        val rxCharacteristic = stringArg(arguments, "rx_characteristic")
+            ?: return err(id, "missing required argument: rx_characteristic")
+        val valueHex = stringArg(arguments, "value_hex") ?: return err(id, "missing required argument: value_hex")
+        val bytes = fromHex(valueHex) ?: return err(id, "invalid value_hex: expected an even-length hex string, got \"$valueHex\"")
+        val withResponse = boolArg(arguments, "with_response") ?: true
+        val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
+        val idleTimeout = clampTimeout(intArg(arguments, "idle_timeout_ms"), default = 2000, max = 60_000)
+        val maxBytes = intArg(arguments, "max_bytes")?.takeIf { it > 0 } ?: DEFAULT_MAX_NOTIFY_BYTES
+        val returnFormat = returnFormat(arguments) ?: return err(id, RETURN_FORMAT_MESSAGE)
+        val decode = decodeMode(arguments) ?: return err(id, DECODE_MESSAGE)
+        val result = source.gattWriteWait(
+            address, txService, txCharacteristic, bytes, rxService, rxCharacteristic,
+            withResponse, timeout, idleTimeout, maxBytes, decode,
+        )
+        result.error?.let { return err(id, it) }
+        val base = notificationsPayload(result.events, result.overflowCount, result.frames, returnFormat)
+        val payload = buildJsonObject {
+            put("tx_written", JsonPrimitive(result.txWritten))
+            put("timed_out", JsonPrimitive(result.timedOut))
+            base.forEach { (k, v) -> put(k, v) }
+        }
+        return JsonRpc.textToolResult(id, payload.toString())
+    }
+
+    private fun unsubscribePayload(address: String, service: String, characteristic: String): JsonObject =
+        buildJsonObject {
+            put("unsubscribed", JsonPrimitive(true))
+            put("address", JsonPrimitive(address))
+            put("service", JsonPrimitive(service))
+            put("characteristic", JsonPrimitive(characteristic))
+        }
+
+    private fun notificationsPayload(
+        events: List<GattNotification>,
+        overflowCount: Int,
+        frames: List<ByteArray>,
+        returnFormat: String,
+    ): JsonObject = buildJsonObject {
+        put(
+            "events",
+            buildJsonArray {
+                events.forEach { ev ->
+                    add(
+                        buildJsonObject {
+                            put("timestamp_ms", JsonPrimitive(ev.timestampMs))
+                            put("address", JsonPrimitive(ev.address))
+                            put("service", JsonPrimitive(ev.service))
+                            put("characteristic", JsonPrimitive(ev.characteristic))
+                            put("value_hex", JsonPrimitive(toHex(ev.value)))
+                            if (returnFormat == "utf8") {
+                                put("value_utf8", JsonPrimitive(String(ev.value, Charsets.UTF_8)))
+                            }
+                            put("value_len", JsonPrimitive(ev.value.size))
+                            put("seq", JsonPrimitive(ev.seq))
+                        },
+                    )
+                }
+            },
+        )
+        put("overflow_count", JsonPrimitive(overflowCount))
+        if (frames.isNotEmpty()) {
+            put("frames", buildJsonArray { frames.forEach { add(JsonPrimitive(toHex(it))) } })
+        }
+    }
+
+    private fun returnFormat(arguments: JsonObject): String? {
+        val raw = stringArg(arguments, "return_format")?.lowercase() ?: return "hex"
+        return raw.takeIf { it in RETURN_FORMATS }
+    }
+
+    private fun decodeMode(arguments: JsonObject): String? {
+        val raw = stringArg(arguments, "decode")?.lowercase() ?: return "raw"
+        return raw.takeIf { it in DECODE_MODES }
     }
 
     private fun btGattDisconnect(id: JsonElement, arguments: JsonObject): JsonObject {
@@ -640,7 +988,66 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         /** Canonical Serial Port Profile UUID. */
         const val SPP_UUID = "00001101-0000-1000-8000-00805F9B34FB"
 
+        /** Client Characteristic Configuration Descriptor (CCCD): the standard
+         *  descriptor whose value enables notify (0x0001) / indicate (0x0002). */
+        const val CCCD_UUID = "00002902-0000-1000-8000-00805f9b34fb"
+
         private const val DEFAULT_MAX_RECV_BYTES = 4096
+        private const val DEFAULT_MAX_NOTIFY_BYTES = 65536
+        private const val DEFAULT_MAX_EVENTS = 64
+
+        private const val DEFAULT_MTU = 517
+        private const val MIN_MTU = 23
+        private const val MAX_MTU = 517
+
+        private val SUBSCRIBE_MODES = setOf("notify", "indicate", "auto")
+        private val RETURN_FORMATS = setOf("hex", "utf8")
+        private val DECODE_MODES = setOf("raw", "length_delimited")
+
+        private const val RETURN_FORMAT_MESSAGE = "invalid return_format: expected hex | utf8"
+        private const val DECODE_MESSAGE = "invalid decode: expected raw | length_delimited"
+
+        /**
+         * Extract as many complete varint-length-prefixed frames as [buffer]
+         * holds. Each frame is a protobuf-style LEB128 length followed by that
+         * many payload bytes; the returned [LengthDelimitedParse.frames] are the
+         * payloads with the length prefix stripped, and [remainder] carries the
+         * trailing bytes of an incomplete frame for the next call. Protocol
+         * agnostic - it does not parse protobuf fields, only the framing.
+         */
+        fun parseLengthDelimited(buffer: ByteArray): LengthDelimitedParse {
+            val frames = mutableListOf<ByteArray>()
+            var pos = 0
+            while (pos < buffer.size) {
+                // Decode the varint length at pos.
+                var shift = 0
+                var length = 0L
+                var cursor = pos
+                var complete = false
+                while (cursor < buffer.size) {
+                    val b = buffer[cursor].toInt() and 0xFF
+                    length = length or ((b.toLong() and 0x7F) shl shift)
+                    cursor++
+                    if (b and 0x80 == 0) {
+                        complete = true
+                        break
+                    }
+                    shift += 7
+                    if (shift > 63) {
+                        // Malformed varint; treat the rest as remainder to avoid
+                        // looping forever on corrupt input.
+                        complete = false
+                        break
+                    }
+                }
+                if (!complete) break
+                val frameEnd = cursor + length
+                if (length < 0 || frameEnd > buffer.size) break
+                frames.add(buffer.copyOfRange(cursor, frameEnd.toInt()))
+                pos = frameEnd.toInt()
+            }
+            return LengthDelimitedParse(frames, buffer.copyOfRange(pos, buffer.size))
+        }
 
         private val ADDRESS_REGEX = Regex("^([0-9A-F]{2}:){5}[0-9A-F]{2}$")
 

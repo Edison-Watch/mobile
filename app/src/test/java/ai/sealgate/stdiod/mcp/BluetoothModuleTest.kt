@@ -37,6 +37,32 @@ private class FakeBluetooth(
         timeoutMs: Long,
     ) = BtOpResult()
     override fun gattDisconnect(address: String) = BtOpResult()
+    override fun gattRequestMtu(address: String, mtu: Int, timeoutMs: Long) = GattMtuResult()
+    override fun gattSubscribe(address: String, service: String, characteristic: String, mode: String, timeoutMs: Long) =
+        GattSubscribeResult()
+    override fun gattNotificationsPoll(
+        address: String,
+        service: String,
+        characteristic: String,
+        maxEvents: Int,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ) = GattNotificationsResult()
+    override fun gattUnsubscribe(address: String, service: String, characteristic: String) = BtOpResult()
+    override fun gattWriteWait(
+        address: String,
+        txService: String,
+        txCharacteristic: String,
+        value: ByteArray,
+        rxService: String,
+        rxCharacteristic: String,
+        withResponse: Boolean,
+        timeoutMs: Long,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ) = GattWriteWaitResult()
     override fun sppConnect(address: String, uuid: String, timeoutMs: Long) = BtOpResult()
     override fun sppSend(address: String, value: ByteArray, timeoutMs: Long) = BtOpResult()
     override fun sppRecv(address: String, timeoutMs: Long, maxBytes: Int) = SppRecvResult()
@@ -76,6 +102,11 @@ class BluetoothModuleTest {
                 "bt_gatt_services",
                 "bt_gatt_read",
                 "bt_gatt_write",
+                "bt_gatt_request_mtu",
+                "bt_gatt_subscribe",
+                "bt_gatt_notifications_poll",
+                "bt_gatt_unsubscribe",
+                "bt_gatt_write_wait",
                 "bt_gatt_disconnect",
                 "bt_spp_connect",
                 "bt_spp_send",
