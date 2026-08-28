@@ -1,0 +1,6 @@
+{
+  "type": "server_spec_update",
+  "server_id": "filesystem",
+  "env": { "PP": "/workspace/project" },
+  "templated_args": { "{PP}": "/workspace/project" }
+}

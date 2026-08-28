@@ -1,0 +1,12 @@
+{
+  "type": "mcp_frame",
+  "server_id": "filesystem",
+  "frame": {
+    "jsonrpc": "2.0",
+    "id": "req-9c31",
+    "result": {
+      "content": [{ "type": "text", "text": "# projects\n" }],
+      "isError": false
+    }
+  }
+}

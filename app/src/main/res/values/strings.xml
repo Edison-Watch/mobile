@@ -12,4 +12,7 @@
     <string name="tunnel_channel_description">Ongoing status of the stdio tunnel connection.</string>
     <string name="tunnel_notification_title">Stdio tunnel active</string>
     <string name="tunnel_notification_text">Connected to the gateway.</string>
+    <string name="tunnel_state_connected">Connected to the gateway.</string>
+    <string name="tunnel_state_connecting">Connecting to the gateway…</string>
+    <string name="tunnel_state_disconnected">Disconnected. Reconnecting with backoff.</string>
 </resources>

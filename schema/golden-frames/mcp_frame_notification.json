@@ -1,0 +1,9 @@
+{
+  "type": "mcp_frame",
+  "server_id": "filesystem",
+  "frame": {
+    "jsonrpc": "2.0",
+    "method": "notifications/progress",
+    "params": { "progressToken": "req-9c31", "progress": 3, "total": 10 }
+  }
+}

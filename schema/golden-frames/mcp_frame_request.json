@@ -1,0 +1,13 @@
+{
+  "type": "mcp_frame",
+  "server_id": "filesystem",
+  "frame": {
+    "jsonrpc": "2.0",
+    "id": 17,
+    "method": "tools/call",
+    "params": {
+      "name": "read_file",
+      "arguments": { "path": "/workspace/project/README.md" }
+    }
+  }
+}

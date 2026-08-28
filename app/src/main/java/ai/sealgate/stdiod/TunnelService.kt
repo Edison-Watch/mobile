@@ -11,6 +11,11 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import ai.sealgate.stdiod.mcp.AndroidDeviceInfo
+import ai.sealgate.stdiod.mcp.DeviceInfoModule
+import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
+import ai.sealgate.stdiod.tunnel.TunnelClient
+import ai.sealgate.stdiod.tunnel.TunnelState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -30,6 +35,7 @@ import kotlinx.coroutines.launch
 class TunnelService : LifecycleService() {
 
     private var tunnelJob: Job? = null
+    private var tunnelClient: TunnelClient? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
@@ -49,34 +55,53 @@ class TunnelService : LifecycleService() {
             return START_NOT_STICKY
         }
 
-        // Restart the tunnel loop if we were re-delivered a start command.
-        tunnelJob?.cancel()
-        tunnelJob = lifecycleScope.launch { connect(config) }
+        // Restart the tunnel if we were re-delivered a start command.
+        connect(config)
 
         // START_STICKY: keep the tunnel alive; the OS restarts us if killed.
         return START_STICKY
     }
 
-    /**
-     * TODO: implement the tunnel.
-     *
-     *  1. Open a WebSocket to [config.gatewayUrl] with a bearer auth header.
-     *  2. Launch the local stdio MCP server process.
-     *  3. Bridge: gateway frames -> process stdin, process stdout -> gateway.
-     *  4. Reconnect with exponential backoff on disconnect.
-     */
-    private suspend fun connect(config: TunnelConfig) {
+    private fun connect(config: TunnelConfig) {
+        tunnelClient?.stop()
+        tunnelJob?.cancel()
+
         Log.i(TAG, "Tunnel starting -> ${config.gatewayUrl}")
-        // Placeholder: real WebSocket + stdio bridging goes here.
+        val identity = DeviceIdentityStore.load(this, BuildConfig.VERSION_NAME)
+        val client = TunnelClient(
+            gatewayUrl = config.gatewayUrl,
+            authToken = config.authToken,
+            identity = identity,
+            modules = listOf(DeviceInfoModule(AndroidDeviceInfo)),
+            scope = lifecycleScope,
+        )
+        tunnelClient = client
+        client.start()
+
+        // Keep the ongoing notification honest about the tunnel's state.
+        tunnelJob = lifecycleScope.launch {
+            client.state.collect { state ->
+                val text = when (state) {
+                    TunnelState.Connected -> getString(R.string.tunnel_state_connected)
+                    TunnelState.Connecting -> getString(R.string.tunnel_state_connecting)
+                    TunnelState.Disconnected -> getString(R.string.tunnel_state_disconnected)
+                }
+                val manager =
+                    getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                manager.notify(NOTIFICATION_ID, buildNotification(text))
+            }
+        }
     }
 
     override fun onDestroy() {
+        tunnelClient?.stop()
+        tunnelClient = null
         tunnelJob?.cancel()
         tunnelJob = null
         super.onDestroy()
     }
 
-    private fun buildNotification(): Notification {
+    private fun buildNotification(text: String = getString(R.string.tunnel_notification_text)): Notification {
         ensureChannel()
         val openApp = PendingIntent.getActivity(
             this,
@@ -86,7 +111,7 @@ class TunnelService : LifecycleService() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.tunnel_notification_title))
-            .setContentText(getString(R.string.tunnel_notification_text))
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_tunnel)
             .setOngoing(true)
             .setContentIntent(openApp)

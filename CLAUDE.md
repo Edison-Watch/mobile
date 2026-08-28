@@ -4,13 +4,23 @@ Guidance for AI agents working in this repository.
 
 ## Project overview
 
-**Mobile-Stdiod** is an Android app template for an **stdio tunnel**: a
+**Mobile-Stdiod** is the Android client for the SealGate **stdio tunnel**: a
 device-side daemon that lets cloud agents reach local MCP servers over a single
-**outbound** WebSocket to a hosted gateway. See [`README.md`](README.md) for the
-architecture diagram and background.
+**outbound** WebSocket to the SealGate backend. See [`README.md`](README.md)
+for the architecture diagram and background.
 
-The tunnel transport itself is a stub — the template gives you a building,
-runnable app shell (Start/Stop UI + foreground service) to implement it in.
+The wire protocol (v2) is shared with the desktop `sealgate-stdiod` daemon.
+The vendored schema lives at `schema/tunnel-protocol.json` (canonical copy:
+`crates/stdiod/schema/` in Edison-Watch/app; also vendored in
+edison-watch/edison-watch under `src/stdio_tunnel/`); the golden fixtures in
+`schema/golden-frames/` are the shared bytes all three implementations
+round-trip in their test suites. When the protocol changes, update the schema
++ fixtures in lockstep across all three repos.
+
+Unlike the desktop daemon there is no subprocess supervision: `mcp_frame`s
+route to in-process `LocalMcpModule` implementations (`app/.../mcp/`), and
+desired-state entries that don't match a built-in module are refused with a
+spawn error.
 
 ## Stack
 
@@ -34,8 +44,16 @@ runnable app shell (Start/Stop UI + foreground service) to implement it in.
 
 - `app/src/main/java/ai/sealgate/stdiod/MainActivity.kt` — start/stop control UI.
 - `app/src/main/java/ai/sealgate/stdiod/TunnelService.kt` — foreground service;
-  `connect()` is the stub where the WebSocket + stdio bridging goes.
+  owns the `TunnelClient` lifecycle and keeps the notification honest.
 - `app/src/main/java/ai/sealgate/stdiod/TunnelConfig.kt` — connection settings.
+- `app/src/main/java/ai/sealgate/stdiod/tunnel/` — wire protocol codec
+  (`TunnelFrame.kt`), WebSocket client + reconnect (`TunnelClient.kt`),
+  persisted device identity (`DeviceIdentityStore.kt`).
+- `app/src/main/java/ai/sealgate/stdiod/mcp/` — in-process MCP modules;
+  add a new hardware module by extending `BaseMcpModule` and registering it
+  in `TunnelService.connect()`.
+- `app/src/test/` — JVM tests; `GoldenFramesTest` round-trips every fixture
+  in `schema/golden-frames/` and fails on codec drift.
 - `app/src/main/res/` — layouts, strings, theme, adaptive launcher icon.
 - Versions are centralized in `gradle/libs.versions.toml`; add libraries there,
   reference them as `libs.*` in `app/build.gradle.kts`.
