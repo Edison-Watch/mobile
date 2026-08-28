@@ -18,7 +18,7 @@
 		"lucide-react": "^1.7.0",
 		"next": "16.1.6",
 		"react": "^19.2.3",
-		"react-dom": "^19.2.3",
+		"react-dom": "^19.2.8",
 		"tailwind-merge": "^3.5.0"
 	},
 	"devDependencies": {
@@ -26,7 +26,7 @@
 		"@types/mdx": "^2.0.13",
 		"@types/node": "^25.3.5",
 		"@types/react": "^19.2.8",
-		"@types/react-dom": "^19.2.3",
+		"@types/react-dom": "^19.2.5",
 		"eslint": "^10.1.0",
 		"eslint-config-next": "16.1.6",
 		"next-validate-link": "^1.6.4",
