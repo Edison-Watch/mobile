@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/assets/banner.png" alt="Mobile-Stdiod — stdio tunnels: cloud agents reach your local MCPs" width="820">
+  <img src=".github/assets/banner.png" alt="SealGate — connect &amp; govern how AI interacts with your data" width="820">
 </p>
 
 <h1 align="center">Mobile-Stdiod</h1>
