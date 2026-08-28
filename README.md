@@ -4,17 +4,18 @@
 
 <h1 align="center">Mobile-Stdiod</h1>
 
-An Android app template for an **stdio tunnel** — a device-side daemon that lets
-cloud agents reach the MCP (Model Context Protocol) servers running on your
-phone. It holds a single **outbound** WebSocket to a hosted gateway, so there is
-no inbound port to open, and your data and logins stay on the device.
+<img src=".github/assets/android.svg" alt="Android" height="16"> An Android app
+template for an **stdio tunnel** — a device-side daemon that lets cloud agents
+reach the MCP (Model Context Protocol) servers running on your phone. It holds a
+single **outbound** WebSocket to a hosted gateway, so there is no inbound port to
+open, and your data and logins stay on the device.
 
 Based on the design in
 [Stdio Tunnels: Bridging Cloud Agents to Local MCPs](https://sealgate.ai/blog/stdio-tunnels-cloud-agents-reach-local-mcps).
 
-> This is a **starter template**, not a finished product. The tunnel transport
-> is stubbed out (see `TunnelService.connect`); the app builds, installs, runs,
-> and shows a Start/Stop control surface so you have a working shell to build on.
+> This is a **starter template**. The tunnel transport is stubbed out (see
+> `TunnelService.connect`); the app builds, installs, runs, and shows a
+> Start/Stop control surface to build on.
 
 ## Architecture
 
