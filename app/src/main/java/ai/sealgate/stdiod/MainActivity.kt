@@ -37,6 +37,9 @@ class MainActivity : AppCompatActivity() {
         maybeRequestNotificationPermission()
         maybeRequestBluetoothPermission()
 
+        binding.versionText.text =
+            getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+
         val stored = TunnelSettings.load(this)
         binding.gatewayUrlInput.setText(stored.gatewayUrl)
         binding.apiKeyInput.setText(stored.authToken)
