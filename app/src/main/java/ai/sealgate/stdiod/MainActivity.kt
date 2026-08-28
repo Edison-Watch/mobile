@@ -28,12 +28,27 @@ class MainActivity : AppCompatActivity() {
 
         maybeRequestNotificationPermission()
 
+        val stored = TunnelSettings.load(this)
+        binding.gatewayUrlInput.setText(stored.gatewayUrl)
+        binding.apiKeyInput.setText(stored.authToken)
+
         binding.startButton.setOnClickListener {
-            // TODO: read a real gateway URL + token from settings/DataStore.
             val config = TunnelConfig(
-                gatewayUrl = "wss://dashboard.sealgate.ai/api/v1/stdio-tunnel/ws",
-                authToken = "replace-me",
+                gatewayUrl = binding.gatewayUrlInput.text?.toString()?.trim().orEmpty(),
+                authToken = binding.apiKeyInput.text?.toString()?.trim().orEmpty(),
             )
+            binding.gatewayUrlLayout.error = null
+            binding.apiKeyLayout.error = null
+            if (!config.isValid()) {
+                if (!config.gatewayUrl.startsWith("wss://") && !config.gatewayUrl.startsWith("ws://")) {
+                    binding.gatewayUrlLayout.error = getString(R.string.error_gateway_url)
+                }
+                if (config.authToken.isBlank()) {
+                    binding.apiKeyLayout.error = getString(R.string.error_api_key)
+                }
+                return@setOnClickListener
+            }
+            TunnelSettings.save(this, config)
             TunnelService.start(this, config)
             setStatus(getString(R.string.status_running))
         }
