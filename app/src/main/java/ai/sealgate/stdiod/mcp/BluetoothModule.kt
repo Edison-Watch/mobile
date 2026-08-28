@@ -340,7 +340,7 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         add(
             descriptor(
                 "bt_gatt_request_mtu",
-                "Negotiate a larger ATT MTU on a connected GATT peripheral. Android's default is 23 bytes (20 usable) - too small for large payloads or Flipper screen frames. Returns the negotiated MTU.",
+                "Negotiate a larger ATT MTU on a connected GATT peripheral. Android's default is 23 bytes (20 usable) - too small for large payloads or multi-packet frames. Returns the negotiated MTU.",
             ) {
                 stringProp("address", "Device hardware address of a connected peripheral.", required = true)
                 intProp("mtu", "Desired ATT MTU (default 517, clamped to 23..517).")
@@ -350,7 +350,7 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         add(
             descriptor(
                 "bt_gatt_subscribe",
-                "Subscribe to notifications/indications on a GATT characteristic so a device's replies (Flipper RPC, Nordic UART/NUS, battery-level notify, any UART-over-BLE sensor) are buffered. Writes the CCCD descriptor and starts a per-characteristic event queue drained by bt_gatt_notifications_poll.",
+                "Subscribe to notifications/indications on a GATT characteristic so a device's replies (Nordic UART/NUS, battery-level notify, any UART-over-BLE sensor or serial-RPC device) are buffered. Writes the CCCD descriptor and starts a per-characteristic event queue drained by bt_gatt_notifications_poll.",
             ) {
                 stringProp("address", "Device hardware address of a connected peripheral.", required = true)
                 stringProp("service", "Service UUID.", required = true)
@@ -612,7 +612,7 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
     private fun btGattRequestMtu(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
         val address = address(id, arguments) ?: return invalidAddress(id, arguments)
-        // Android's default ATT MTU is 23 (20 usable); Flipper screen frames and
+        // Android's default ATT MTU is 23 (20 usable); multi-packet frames and
         // large protobuf payloads need more, so 517 (the BLE max) is the default.
         val requested = (intArg(arguments, "mtu") ?: DEFAULT_MTU).coerceIn(MIN_MTU, MAX_MTU)
         val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
