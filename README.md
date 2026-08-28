@@ -42,27 +42,9 @@ returns complete `frames` alongside the raw events. `bt_gatt_request_mtu` raises
 the ATT MTU (Android defaults to 23, only 20 usable) so larger payloads and
 Flipper screen frames fit.
 
-Example — talk to a Flipper over its serial-RPC characteristic:
-
-```jsonc
-// 1. connect, then raise the MTU for large frames
-bt_gatt_connect      { "address": "80:E1:26:00:11:22" }
-bt_gatt_request_mtu  { "address": "80:E1:26:00:11:22", "mtu": 517 }
-// 2. subscribe to the RX (indicate) characteristic
-bt_gatt_subscribe    { "address": "80:E1:26:00:11:22",
-                       "service": "19ed82ae-ed21-4c9d-4145-228e61fe0000",   // Flipper serial service
-                       "characteristic": "19ed82ae-ed21-4c9d-4145-228e62fe0000", // RX (indicate)
-                       "mode": "indicate" }
-// 3. write a length-delimited protobuf frame to TX and collect the reply
-bt_gatt_write_wait   { "address": "80:E1:26:00:11:22",
-                       "tx_service": "19ed82ae-ed21-4c9d-4145-228e61fe0000",
-                       "tx_characteristic": "19ed82ae-ed21-4c9d-4145-228e60fe0000", // TX (write)
-                       "value_hex": "0a02087b",
-                       "rx_service": "19ed82ae-ed21-4c9d-4145-228e61fe0000",
-                       "rx_characteristic": "19ed82ae-ed21-4c9d-4145-228e62fe0000",
-                       "decode": "length_delimited" }
-// -> { "tx_written": true, "events": [...], "frames": ["..."], "overflow_count": 0 }
-```
+For a full, real-device worked example — reading an NFC card off a Flipper Zero
+over its BLE serial-RPC service — see
+[Flipper Zero over BLE](#flipper-zero-over-ble-worked-example) below.
 
 ## Architecture
 
@@ -137,6 +119,103 @@ bt_gatt_write_wait   { "address": "80:E1:26:00:11:22",
 2. Run the app, fill in the gateway WebSocket URL and your SealGate API key
    (from the dashboard), and tap **Start tunnel**. Settings persist across
    restarts; the ongoing notification shows the live connection state.
+
+## Flipper Zero over BLE (worked example)
+
+A cloud agent can drive a [Flipper Zero](https://flipperzero.one/) through the
+gateway to run its protobuf **BLE RPC** — here, reading an NFC card it just
+scanned — using only the shipped `bt_*` GATT tools. The phone module is
+**protocol-agnostic**: it moves framed bytes and never parses protobuf. The
+agent encodes/decodes the Flipper `PB.Main` messages (`app_start`, storage/NFC
+requests, `Empty` acks) itself and hands the module raw `value_hex`.
+
+**Two gotchas, read first:**
+
+1. **Do NOT send the `start_rpc_session` ASCII string over BLE.** That USB-only
+   handshake corrupts the BLE RPC framing. A connected+activated BLE link is
+   already in RPC mode — just write length-delimited `PB.Main` frames to TX.
+2. **The official Flipper mobile app must be disconnected.** Flipper BLE accepts
+   exactly **one** client; a second connection silently fails.
+
+Flipper serial service `8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000`, characteristics
+(share the base, differ in the `…6Xfe…` nibble):
+
+| Role | Characteristic UUID | GATT op |
+|------|---------------------|---------|
+| RX (device→phone) | `8fe5b3d5-2e7f-4a98-2a48-7acc61fe0000` | **indicate** (CCCD `0x0002`) |
+| TX (phone→device) | `8fe5b3d5-2e7f-4a98-2a48-7acc62fe0000` | **write** (length-delimited protobuf) |
+| Flow control | `8fe5b3d5-2e7f-4a98-2a48-7acc63fe0000` | notify (CCCD `0x0001`) |
+| RPC status | `8fe5b3d5-2e7f-4a98-2a48-7acc64fe0000` | notify (CCCD `0x0001`) |
+
+The sequence below is against a Pixel 6 ↔ Flipper `80:E1:27:66:36:CB`.
+`value_hex` payloads are illustrative — the agent supplies the real
+protobuf-encoded bytes.
+
+```jsonc
+// 0. pair (once) + connect, then raise the MTU so whole frames fit
+bt_pair              { "address": "80:E1:27:66:36:CB" }
+bt_gatt_connect      { "address": "80:E1:27:66:36:CB" }
+bt_gatt_request_mtu  { "address": "80:E1:27:66:36:CB", "mtu": 517 }
+
+// 1. subscribe to RX (indications) and RPC-status (notify) up front.
+//    Both queues are independent and live on the one pinned connection.
+bt_gatt_subscribe    { "address": "80:E1:27:66:36:CB",
+                       "service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                       "characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc61fe0000", // RX
+                       "mode": "indicate" }                                       // CCCD 0x0002
+bt_gatt_subscribe    { "address": "80:E1:27:66:36:CB",
+                       "service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                       "characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc64fe0000", // status
+                       "mode": "notify" }                                         // CCCD 0x0001
+
+// 2. activate the RPC session: write 01 00 00 00 to the RPC-status char.
+//    (This is the BLE activation write — NOT the start_rpc_session string.)
+bt_gatt_write        { "address": "80:E1:27:66:36:CB",
+                       "service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                       "characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc64fe0000",
+                       "value_hex": "01000000" }
+
+// 3. write the app_start / NFC-read PB.Main frame to TX and collect the reply.
+//    The module can't see protobuf has_next, so bound the collection with
+//    idle_timeout_ms / max_bytes; length_delimited reassembles PB.Main frames
+//    that span several indications back into whole `frames`.
+bt_gatt_write_wait   { "address": "80:E1:27:66:36:CB",
+                       "tx_service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                       "tx_characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc62fe0000", // TX
+                       "value_hex": "…app_start(/ext/nfc app) PB.Main…",
+                       "rx_service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                       "rx_characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc61fe0000", // RX
+                       "idle_timeout_ms": 3000,
+                       "decode": "length_delimited" }
+// -> { "tx_written": true, "frames": ["…PB.Main…"], "overflow_count": 0, ... }
+
+// 4. drain any trailing RX frames the same way (repeat until frames stop /
+//    the agent sees has_next = 0 in the decoded PB.Main).
+bt_gatt_notifications_poll { "address": "80:E1:27:66:36:CB",
+                             "service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                             "characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc61fe0000",
+                             "decode": "length_delimited" }
+
+// 5. read the saved card via a Storage.Read PB.Main over the same TX/RX pair
+bt_gatt_write_wait   { "address": "80:E1:27:66:36:CB",
+                       "tx_service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                       "tx_characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc62fe0000",
+                       "value_hex": "…storage_read(/ext/nfc/MyCard.nfc) PB.Main…",
+                       "rx_service": "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000",
+                       "rx_characteristic": "8fe5b3d5-2e7f-4a98-2a48-7acc61fe0000",
+                       "max_bytes": 65536,
+                       "decode": "length_delimited" }
+// -> frames carry the file contents; the agent concatenates them until has_next = 0
+```
+
+Why this maps cleanly onto the shipped tools: the GATT connection is **pinned
+per address**, so the subscribe / activate / write / poll calls all reuse one
+live link; `bt_gatt_subscribe` writes the concrete CCCD value for the mode
+(indicate `0x0002` on RX, notify `0x0001` on status), with `auto` picking
+indicate when the characteristic advertises it; `bt_gatt_write`/`_write_wait`
+send **exactly** the bytes given (no implicit framing or `start_rpc_session`);
+and `decode: "length_delimited"` reassembles the varint-prefixed `PB.Main`
+frames across indications.
 
 ## Adding a hardware module
 
