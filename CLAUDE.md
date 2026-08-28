@@ -54,11 +54,17 @@ spawn error.
   extending `BaseMcpModule` and registering it in `TunnelService.connect()`.
   `bluetooth` is a write/control module: besides the read tools
   (`get_bluetooth_status`, `list_bonded_devices`) it does BLE scan + GATT
-  read/write (`bt_scan`, `bt_gatt_*`), classic RFCOMM/SPP (`bt_spp_*`), and
-  pairing (`bt_pair`/`bt_unpair`). The Android impl bridges the async GATT
+  read/write (`bt_scan`, `bt_gatt_*`), GATT notify/indicate for request/response
+  (`bt_gatt_request_mtu`, `bt_gatt_subscribe`, `bt_gatt_notifications_poll`,
+  `bt_gatt_unsubscribe`, `bt_gatt_write_wait`), classic RFCOMM/SPP (`bt_spp_*`),
+  and pairing (`bt_pair`/`bt_unpair`). The Android impl bridges the async GATT
   callbacks / blocking RFCOMM IO to the synchronous module with
-  latches/timeouts and holds live connections by address. Adapter on/off is
-  deliberately excluded (Android forbids it for third-party apps).
+  latches/timeouts and holds live connections by address. Notifications land via
+  `onCharacteristicChanged` into a bounded per-characteristic queue (subscribe
+  writes the CCCD `0x2902` descriptor) that poll/write_wait drain; `decode:
+  "length_delimited"` reassembles varint-length-prefixed frames across
+  notifications. Adapter on/off is deliberately excluded (Android forbids it for
+  third-party apps).
   Hardware access goes behind a small source interface (e.g. `BatterySource`)
   with the Android implementation in its own `Android*` file, so module logic
   stays JVM-testable with fakes.

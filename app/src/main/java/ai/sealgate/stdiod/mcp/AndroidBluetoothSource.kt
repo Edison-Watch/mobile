@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.BluetoothSocket
@@ -22,9 +23,12 @@ import androidx.core.content.ContextCompat
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -202,7 +206,7 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             ?: return GattServicesResult(error = "unknown device address: $address")
         // Drop any stale connection to the same device first.
         gattConnections.remove(address)?.close()
-        val conn = GattConnection()
+        val conn = GattConnection(address)
         return try {
             val latch = CountDownLatch(1)
             conn.beginConnect(latch)
@@ -312,6 +316,270 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
         conn.close()
         return BtOpResult()
     }
+
+    // -- GATT notify / indicate --------------------------------------------
+
+    override fun gattRequestMtu(address: String, mtu: Int, timeoutMs: Long): GattMtuResult {
+        val conn = gattConnections[address] ?: return GattMtuResult(error = NOT_CONNECTED_GATT)
+        val gatt = conn.gatt ?: return GattMtuResult(error = NOT_CONNECTED_GATT)
+        return try {
+            val latch = CountDownLatch(1)
+            conn.beginMtu(latch)
+            if (!gatt.requestMtu(mtu)) return GattMtuResult(error = "failed to start MTU request for $address")
+            if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                return GattMtuResult(error = "timed out negotiating MTU with $address")
+            }
+            if (!conn.mtuOk) return GattMtuResult(error = "MTU negotiation with $address failed")
+            GattMtuResult(mtu = conn.mtuValue)
+        } catch (e: SecurityException) {
+            GattMtuResult(error = "bluetooth connect permission denied: ${e.message}")
+        }
+    }
+
+    override fun gattSubscribe(
+        address: String,
+        service: String,
+        characteristic: String,
+        mode: String,
+        timeoutMs: Long,
+    ): GattSubscribeResult = doSubscribe(address, service, characteristic, mode, timeoutMs)
+
+    override fun gattUnsubscribe(address: String, service: String, characteristic: String): BtOpResult {
+        val conn = gattConnections[address] ?: return BtOpResult(NOT_CONNECTED_GATT)
+        val gatt = conn.gatt ?: return BtOpResult(NOT_CONNECTED_GATT)
+        // No such characteristic -> nothing to disable; idempotent success.
+        val ch = findCharacteristic(gatt, service, characteristic) ?: return BtOpResult()
+        return try {
+            val cccd = ch.getDescriptor(UUID.fromString(BluetoothModule.CCCD_UUID))
+            if (cccd != null) {
+                gatt.setCharacteristicNotification(ch, false)
+                // Best effort: still clear local state even if the write fails.
+                writeCccd(gatt, cccd, BluetoothGattDescriptor.DISABLE_NOTIFICATION_VALUE, conn, timeoutMs = 5000)
+            }
+            conn.stopSubscription(subKey(ch))
+            BtOpResult()
+        } catch (e: SecurityException) {
+            BtOpResult("bluetooth connect permission denied: ${e.message}")
+        }
+    }
+
+    override fun gattNotificationsPoll(
+        address: String,
+        service: String,
+        characteristic: String,
+        maxEvents: Int,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ): GattNotificationsResult {
+        val conn = gattConnections[address] ?: return GattNotificationsResult(error = NOT_CONNECTED_GATT)
+        val gatt = conn.gatt ?: return GattNotificationsResult(error = NOT_CONNECTED_GATT)
+        val ch = findCharacteristic(gatt, service, characteristic)
+        val key = if (ch != null) subKey(ch) else "$service/$characteristic".lowercase()
+        val sub = conn.subscription(key)
+            ?: return GattNotificationsResult(
+                error = "no active subscription for $characteristic on $address; call bt_gatt_subscribe first",
+            )
+        val events = drainSubscription(sub, maxEvents, idleTimeoutMs, maxBytes)
+        val overflow = sub.overflow.getAndSet(0)
+        val frames = if (decode == "length_delimited") sub.reassemble(events) else emptyList()
+        return GattNotificationsResult(events = events, overflowCount = overflow, frames = frames)
+    }
+
+    override fun gattWriteWait(
+        address: String,
+        txService: String,
+        txCharacteristic: String,
+        value: ByteArray,
+        rxService: String,
+        rxCharacteristic: String,
+        withResponse: Boolean,
+        timeoutMs: Long,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+        decode: String,
+    ): GattWriteWaitResult {
+        val conn = gattConnections[address] ?: return GattWriteWaitResult(error = NOT_CONNECTED_GATT)
+        val gatt = conn.gatt ?: return GattWriteWaitResult(error = NOT_CONNECTED_GATT)
+        val rxCh = findCharacteristic(gatt, rxService, rxCharacteristic)
+            ?: return GattWriteWaitResult(
+                error = "RX characteristic $rxCharacteristic not found in service $rxService on $address",
+            )
+        // Ensure an RX subscription exists (auto-mode) before writing.
+        var sub = conn.subscription(subKey(rxCh))
+        if (sub == null) {
+            val subscribed = doSubscribe(address, rxService, rxCharacteristic, "auto", timeoutMs)
+            subscribed.error?.let { return GattWriteWaitResult(error = it) }
+            sub = conn.subscription(subKey(rxCh))
+                ?: return GattWriteWaitResult(error = "failed to subscribe to RX characteristic $rxCharacteristic")
+        }
+        // Drop stale events so we only collect this exchange's replies.
+        sub.queue.clear()
+        val writeResult = gattWrite(address, txService, txCharacteristic, value, withResponse, timeoutMs)
+        writeResult.error?.let { return GattWriteWaitResult(error = it, txWritten = false) }
+        val events = collectUntil(sub, timeoutMs, idleTimeoutMs, maxBytes)
+        val overflow = sub.overflow.getAndSet(0)
+        val frames = if (decode == "length_delimited") sub.reassemble(events) else emptyList()
+        return GattWriteWaitResult(
+            events = events,
+            overflowCount = overflow,
+            frames = frames,
+            txWritten = true,
+            timedOut = events.isEmpty(),
+        )
+    }
+
+    private fun doSubscribe(
+        address: String,
+        service: String,
+        characteristic: String,
+        mode: String,
+        timeoutMs: Long,
+    ): GattSubscribeResult {
+        val conn = gattConnections[address] ?: return GattSubscribeResult(error = NOT_CONNECTED_GATT)
+        val gatt = conn.gatt ?: return GattSubscribeResult(error = NOT_CONNECTED_GATT)
+        val ch = findCharacteristic(gatt, service, characteristic)
+            ?: return GattSubscribeResult(
+                error = "characteristic $characteristic not found in service $service on $address",
+            )
+        val props = ch.properties
+        val canNotify = props and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0
+        val canIndicate = props and BluetoothGattCharacteristic.PROPERTY_INDICATE != 0
+        val resolved = when (mode) {
+            "notify" -> if (canNotify) "notify" else {
+                return GattSubscribeResult(error = "characteristic $characteristic does not advertise notify")
+            }
+            "indicate" -> if (canIndicate) "indicate" else {
+                return GattSubscribeResult(error = "characteristic $characteristic does not advertise indicate")
+            }
+            // auto: prefer indicate (acked) when offered, else notify.
+            else -> when {
+                canIndicate -> "indicate"
+                canNotify -> "notify"
+                else -> return GattSubscribeResult(
+                    error = "characteristic $characteristic advertises neither notify nor indicate",
+                )
+            }
+        }
+        val cccd = ch.getDescriptor(UUID.fromString(BluetoothModule.CCCD_UUID))
+            ?: return GattSubscribeResult(
+                error = "characteristic $characteristic has no CCCD (0x2902) descriptor; cannot subscribe",
+            )
+        return try {
+            if (!gatt.setCharacteristicNotification(ch, true)) {
+                return GattSubscribeResult(error = "failed to enable notifications for $characteristic")
+            }
+            val cccdValue = if (resolved == "indicate") {
+                BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+            } else {
+                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+            }
+            writeCccd(gatt, cccd, cccdValue, conn, timeoutMs)?.let { return GattSubscribeResult(error = it) }
+            // Start (or reset) the per-characteristic event queue. Note: an
+            // AUTHEN-protected characteristic requires the device be paired
+            // (bt_pair) first; a bonded LE link is encrypted automatically.
+            conn.startSubscription(
+                subKey(ch),
+                address,
+                ch.service?.uuid?.toString() ?: service,
+                ch.uuid.toString(),
+                resolved,
+            )
+            GattSubscribeResult(mode = resolved, cccdWritten = true)
+        } catch (e: SecurityException) {
+            GattSubscribeResult(error = "bluetooth connect permission denied: ${e.message}")
+        }
+    }
+
+    /** Write [value] to the CCCD [descriptor], blocking on onDescriptorWrite;
+     *  returns an error reason or null on success. Guards the API-33 split. */
+    private fun writeCccd(
+        gatt: BluetoothGatt,
+        descriptor: BluetoothGattDescriptor,
+        value: ByteArray,
+        conn: GattConnection,
+        timeoutMs: Long,
+    ): String? = try {
+        val latch = CountDownLatch(1)
+        conn.beginDescriptorWrite(latch)
+        // The writeDescriptor calls need BLUETOOTH_CONNECT; handle a revoked
+        // permission here (not just in callers) so lint sees it guarded and the
+        // helper degrades to an error reason instead of throwing.
+        val started = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            gatt.writeDescriptor(descriptor, value) == BluetoothStatusCodes.SUCCESS
+        } else {
+            @Suppress("DEPRECATION")
+            run {
+                descriptor.value = value
+                gatt.writeDescriptor(descriptor)
+            }
+        }
+        when {
+            !started -> "failed to start CCCD write"
+            !latch.await(timeoutMs, TimeUnit.MILLISECONDS) -> "timed out writing CCCD descriptor"
+            !conn.descriptorOk -> "CCCD write failed"
+            else -> null
+        }
+    } catch (e: SecurityException) {
+        "bluetooth connect permission denied: ${e.message}"
+    }
+
+    /** Block up to [idleTimeoutMs] for the first event, then take whatever else
+     *  is already queued (capped by [maxEvents]/[maxBytes]). */
+    private fun drainSubscription(
+        sub: Subscription,
+        maxEvents: Int,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+    ): List<GattNotification> {
+        val out = mutableListOf<GattNotification>()
+        var bytes = 0
+        val first = try {
+            sub.queue.poll(idleTimeoutMs, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            null
+        }
+        if (first != null) {
+            out.add(first)
+            bytes += first.value.size
+        }
+        while (out.size < maxEvents && bytes < maxBytes) {
+            val e = sub.queue.poll() ?: break
+            out.add(e)
+            bytes += e.value.size
+        }
+        return out
+    }
+
+    /** Collect events until [maxBytes] reached, an idle gap of [idleTimeoutMs]
+     *  with no new event, or the overall [timeoutMs] budget elapses. */
+    private fun collectUntil(
+        sub: Subscription,
+        timeoutMs: Long,
+        idleTimeoutMs: Long,
+        maxBytes: Int,
+    ): List<GattNotification> {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val out = mutableListOf<GattNotification>()
+        var bytes = 0
+        while (bytes < maxBytes) {
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0) break
+            val wait = minOf(idleTimeoutMs, remaining)
+            val e = try {
+                sub.queue.poll(wait, TimeUnit.MILLISECONDS)
+            } catch (_: InterruptedException) {
+                null
+            } ?: break // idle timeout with no new event
+            out.add(e)
+            bytes += e.value.size
+        }
+        return out
+    }
+
+    /** Stable per-characteristic key: `service/characteristic`, lowercased. */
+    private fun subKey(ch: BluetoothGattCharacteristic): String =
+        "${ch.service?.uuid ?: ""}/${ch.uuid}".lowercase()
 
     // -- Classic SPP --------------------------------------------------------
 
@@ -462,7 +730,7 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
      * One live GATT connection plus the callback that bridges its async events
      * back to the blocking source methods via per-operation latches.
      */
-    private inner class GattConnection {
+    private inner class GattConnection(private val address: String) {
         @Volatile var gatt: BluetoothGatt? = null
 
         @Volatile private var connectLatch: CountDownLatch? = null
@@ -474,6 +742,17 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
 
         @Volatile private var writeLatch: CountDownLatch? = null
         @Volatile var writeOk: Boolean = false
+
+        @Volatile private var mtuLatch: CountDownLatch? = null
+        @Volatile var mtuOk: Boolean = false
+        @Volatile var mtuValue: Int = 0
+
+        @Volatile private var descriptorLatch: CountDownLatch? = null
+        @Volatile var descriptorOk: Boolean = false
+
+        // Concurrent subscriptions, each with its own independent event queue,
+        // keyed by [subKey] (service/characteristic).
+        private val subscriptions = ConcurrentHashMap<String, Subscription>()
 
         fun beginConnect(latch: CountDownLatch) {
             discovered = false
@@ -490,6 +769,27 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             writeOk = false
             writeLatch = latch
         }
+
+        fun beginMtu(latch: CountDownLatch) {
+            mtuOk = false
+            mtuValue = 0
+            mtuLatch = latch
+        }
+
+        fun beginDescriptorWrite(latch: CountDownLatch) {
+            descriptorOk = false
+            descriptorLatch = latch
+        }
+
+        fun startSubscription(key: String, address: String, service: String, characteristic: String, mode: String) {
+            subscriptions[key] = Subscription(address, service, characteristic, mode)
+        }
+
+        fun stopSubscription(key: String) {
+            subscriptions.remove(key)
+        }
+
+        fun subscription(key: String): Subscription? = subscriptions[key]
 
         val callback = object : BluetoothGattCallback() {
             override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
@@ -544,16 +844,94 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
                 writeOk = status == BluetoothGatt.GATT_SUCCESS
                 writeLatch?.countDown()
             }
+
+            override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+                mtuOk = status == BluetoothGatt.GATT_SUCCESS
+                mtuValue = mtu
+                mtuLatch?.countDown()
+            }
+
+            override fun onDescriptorWrite(
+                g: BluetoothGatt,
+                descriptor: BluetoothGattDescriptor,
+                status: Int,
+            ) {
+                descriptorOk = status == BluetoothGatt.GATT_SUCCESS
+                descriptorLatch?.countDown()
+            }
+
+            // API 33+ delivers the changed value alongside the callback.
+            override fun onCharacteristicChanged(
+                g: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+                value: ByteArray,
+            ) {
+                subscriptions[subKey(characteristic)]?.enqueue(value)
+            }
+
+            // Pre-33 path: the value lives on the characteristic.
+            @Deprecated("Deprecated in Java")
+            @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
+            override fun onCharacteristicChanged(
+                g: BluetoothGatt,
+                characteristic: BluetoothGattCharacteristic,
+            ) {
+                subscriptions[subKey(characteristic)]?.enqueue(characteristic.value ?: ByteArray(0))
+            }
         }
 
         fun close() {
             val g = gatt
             gatt = null
+            subscriptions.clear()
             try {
                 g?.disconnect()
                 g?.close()
             } catch (_: SecurityException) {
             }
+        }
+    }
+
+    /**
+     * One active notify/indicate subscription: a bounded queue the GATT
+     * callback fills and poll/write_wait drain, plus a per-subscription
+     * length-delimited reassembly buffer so protobuf-style frames can span
+     * several notifications. Bounded so a chatty peer can never OOM the app -
+     * dropped events bump [overflow], which callers always see.
+     */
+    private inner class Subscription(
+        private val address: String,
+        private val service: String,
+        private val characteristic: String,
+        @Volatile var mode: String,
+    ) {
+        val queue = ArrayBlockingQueue<GattNotification>(QUEUE_CAPACITY)
+        val overflow = AtomicInteger(0)
+        private val seq = AtomicLong(0)
+        private var reassembly = ByteArray(0)
+        private val reassemblyLock = Any()
+
+        fun enqueue(value: ByteArray) {
+            val event = GattNotification(
+                timestampMs = System.currentTimeMillis(),
+                address = address,
+                service = service,
+                characteristic = characteristic,
+                value = value.copyOf(),
+                seq = seq.incrementAndGet(),
+            )
+            // Never block the GATT callback thread: drop + count on a full queue.
+            if (!queue.offer(event)) overflow.incrementAndGet()
+        }
+
+        /** Feed [events] into the varint-frame reassembler; returns whatever
+         *  complete frames that yields and buffers any incomplete remainder. */
+        fun reassemble(events: List<GattNotification>): List<ByteArray> = synchronized(reassemblyLock) {
+            var combined = reassembly
+            for (event in events) combined += event.value
+            val parsed = BluetoothModule.parseLengthDelimited(combined)
+            reassembly = parsed.remainder
+            parsed.frames
         }
     }
 
@@ -637,5 +1015,10 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             "not connected: call bt_gatt_connect first for this device"
         const val NOT_CONNECTED_SPP =
             "not connected: call bt_spp_connect first for this device"
+
+        /** Bounded per-characteristic notification queue depth. A chatty peer
+         *  that outruns polling drops events (counted in overflow) rather than
+         *  growing memory without bound. */
+        const val QUEUE_CAPACITY = 4096
     }
 }
