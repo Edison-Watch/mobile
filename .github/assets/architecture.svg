@@ -165,7 +165,6 @@
 
   <!-- Start / Stop control (active) — square-ish button, small radius -->
   <rect x="120" y="288" width="122" height="42" rx="4" fill="#C3FFFD"/>
-  <text x="181" y="314" text-anchor="middle" font-size="13" font-weight="700" letter-spacing="1" fill="#00201E">STOP TUNNEL</text>
 
   <!-- home indicator -->
   <rect x="156" y="432" width="50" height="4" rx="2" fill="#2A3030"/>
