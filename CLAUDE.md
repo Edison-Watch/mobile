@@ -64,7 +64,10 @@ spawn error.
   writes the CCCD `0x2902` descriptor) that poll/write_wait drain; `decode:
   "length_delimited"` reassembles varint-length-prefixed frames across
   notifications. Adapter on/off is deliberately excluded (Android forbids it for
-  third-party apps).
+  third-party apps). For a full request/response walkthrough over these tools,
+  see the "Flipper Zero over BLE" worked example in [`README.md`](README.md)
+  (Flipper BLE RPC: activate + write length-delimited protobuf, never send the
+  USB-only `start_rpc_session` string).
   `usb` is a USB host (USB-OTG) control module (`UsbModule` + `AndroidUsbSource`
   over `android.hardware.usb.UsbManager`): `usb_list_devices`,
   `usb_request_permission`, `usb_open`, `usb_bulk_transfer`,
