@@ -1,31 +1,44 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+
+# Gradle files
+.gradle/
+build/
+
+# Local configuration file (SDK path, etc.)
+local.properties
+
+# Log/OS files
+*.log
 .DS_Store
 
-old_scripts/
+# Android Studio / IntelliJ
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
 
-# Agent session files
-session-*.md
+# Keystore files (do not commit signing material)
+*.jks
+*.keystore
 
-# Overwrite global config
-.global_config.yaml
+# Kotlin
+.kotlin/
 
-# Node / Bun
-node_modules/
-docs/node_modules/
-dist/
-docs/.vite/
-
-# Rust
-target/
-src-tauri/target/
-
-# Bun lock cache
-bun.lockb
-docs/bun.lockb
-
-# Environments & secrets
-.env
-.prod.env
-opencode.json
-
-# Agent session files
-.claude/scheduled_tasks.lock
+# Keep the Gradle wrapper jar in version control.
+!gradle/wrapper/gradle-wrapper.jar
