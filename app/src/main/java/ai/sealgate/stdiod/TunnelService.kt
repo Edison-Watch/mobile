@@ -89,9 +89,11 @@ class TunnelService : LifecycleService() {
         tunnelClient = client
         client.start()
 
-        // Keep the ongoing notification honest about the tunnel's state.
+        // Keep the ongoing notification (and the in-app status line, via
+        // TunnelServiceState) honest about the tunnel's state.
         tunnelJob = lifecycleScope.launch {
             client.state.collect { state ->
+                TunnelServiceState.publish(state)
                 val text = when (state) {
                     TunnelState.Connected -> getString(R.string.tunnel_state_connected)
                     TunnelState.Connecting -> getString(R.string.tunnel_state_connecting)
@@ -109,6 +111,9 @@ class TunnelService : LifecycleService() {
         tunnelClient = null
         tunnelJob?.cancel()
         tunnelJob = null
+        // No service means no tunnel: null (not Disconnected, which implies a
+        // pending reconnect) so observers show "stopped".
+        TunnelServiceState.publish(null)
         super.onDestroy()
     }
 
