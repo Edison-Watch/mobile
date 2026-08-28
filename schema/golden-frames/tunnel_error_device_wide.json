@@ -1,0 +1,7 @@
+{
+  "type": "tunnel_error",
+  "server_id": null,
+  "related_jsonrpc_id": null,
+  "code": "stdio_tunnel_disabled",
+  "message": "Stdio servers are not enabled for your organisation. Contact your admin."
+}

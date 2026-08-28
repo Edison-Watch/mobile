@@ -4,17 +4,20 @@
 
 <h1 align="center">Mobile-Stdiod</h1>
 
-An Android app template for an **stdio tunnel** — a device-side daemon that lets
-cloud agents reach the MCP (Model Context Protocol) servers running on your
-phone. It holds a single **outbound** WebSocket to a hosted gateway, so there is
-no inbound port to open, and your data and logins stay on the device.
+The Android client for the SealGate **stdio tunnel** — a device-side daemon
+that lets cloud agents reach MCP (Model Context Protocol) servers running on
+your phone. It holds a single **outbound** WebSocket to the SealGate backend,
+so there is no inbound port to open, and your data and logins stay on the
+device.
 
 Based on the design in
 [Stdio Tunnels: Bridging Cloud Agents to Local MCPs](https://sealgate.ai/blog/stdio-tunnels-cloud-agents-reach-local-mcps).
 
-> This is a **starter template**, not a finished product. The tunnel transport
-> is stubbed out (see `TunnelService.connect`); the app builds, installs, runs,
-> and shows a Start/Stop control surface so you have a working shell to build on.
+The tunnel speaks the same wire protocol as the desktop `sealgate-stdiod`
+daemon (protocol v2; see `schema/tunnel-protocol.json`). Where the desktop
+daemon spawns `npx`/`uvx` subprocesses, this app answers MCP requests from
+**in-process Kotlin modules** — a phone can't spawn stdio servers. The first
+module is `deviceinfo` (`get_device_info`).
 
 ## Architecture
 
@@ -24,33 +27,46 @@ Based on the design in
   │  MainActivity (start / stop)  │         │                      │
   │             │                 │         │                      │
   │             ▼                 │         │                      │
-  │  TunnelService  ──────────────┼── wss ──┼──►  Gateway  ──► Cloud agent
-  │  (foreground service)         │ outbound│         (ChatGPT / Claude / …)
-  │             │                 │         │                      │
-  │             ▼                 │         └──────────────────────┘
-  │  local stdio MCP server(s)    │
-  │  (stdin / stdout process)     │
+  │  TunnelService  ──────────────┼── wss ──┼──►  SealGate backend │◄── Cloud agent
+  │  (foreground service)         │ outbound│   (MCP gateway)      │ (ChatGPT / Claude / …)
+  │             │                 │         └──────────────────────┘
+  │             ▼                 │
+  │  TunnelClient                 │
+  │   client_hello / server_hello │
+  │   ping-pong, reconnect+backoff│
+  │             │                 │
+  │             ▼                 │
+  │  built-in MCP modules         │
+  │  (deviceinfo, …)              │
   └───────────────────────────────┘
 ```
 
 - The daemon opens **one outbound WebSocket** — no incoming ports, works behind
   NAT and mobile carriers.
-- It bridges the gateway's HTTP/SSE transport to a local MCP server's
-  **stdio** (stdin/stdout) framing.
-- It runs as an Android **foreground service** so the OS keeps it alive.
+- After a `client_hello`/`server_hello` handshake it exchanges symmetric
+  `mcp_frame`s (opaque JSON-RPC bodies), routed to built-in modules by server
+  name.
+- It runs as an Android **foreground service** so the OS keeps it alive, and
+  reconnects forever with jittered exponential backoff.
 
 ## Project layout
 
 ```
 .
 ├── app/
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       ├── java/ai/sealgate/stdiod/
-│       │   ├── MainActivity.kt      # start/stop UI (View-based, no Compose)
-│       │   ├── TunnelService.kt     # foreground service; tunnel lifecycle stub
-│       │   └── TunnelConfig.kt      # gateway URL + auth token value type
-│       └── res/                     # layout, strings, theme, adaptive icon
+│   ├── src/main/
+│   │   ├── AndroidManifest.xml
+│   │   ├── java/ai/sealgate/stdiod/
+│   │   │   ├── MainActivity.kt      # start/stop UI (View-based, no Compose)
+│   │   │   ├── TunnelService.kt     # foreground service; owns TunnelClient
+│   │   │   ├── TunnelConfig.kt      # gateway URL + auth token value type
+│   │   │   ├── tunnel/              # wire protocol codec + WebSocket client
+│   │   │   └── mcp/                 # in-process MCP modules (deviceinfo, …)
+│   │   └── res/                     # layout, strings, theme, adaptive icon
+│   └── src/test/                    # JVM tests incl. golden-frame round trips
+├── schema/
+│   ├── tunnel-protocol.json         # vendored wire schema (canonical: Edison-Watch/app)
+│   └── golden-frames/               # shared fixtures round-tripped in CI
 ├── build.gradle.kts                 # root build
 ├── settings.gradle.kts
 ├── gradle/libs.versions.toml        # version catalog

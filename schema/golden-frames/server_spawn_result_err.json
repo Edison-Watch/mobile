@@ -1,0 +1,6 @@
+{
+  "type": "server_spawn_result",
+  "server_id": "github",
+  "ok": false,
+  "error": "failed to spawn `uvx`: No such file or directory (os error 2)"
+}

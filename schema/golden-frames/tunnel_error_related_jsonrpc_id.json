@@ -1,0 +1,7 @@
+{
+  "type": "tunnel_error",
+  "server_id": "github",
+  "related_jsonrpc_id": 17,
+  "code": "spawn_failed",
+  "message": "failed to spawn `uvx`: No such file or directory (os error 2)"
+}

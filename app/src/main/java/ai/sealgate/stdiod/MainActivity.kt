@@ -31,7 +31,7 @@ class MainActivity : AppCompatActivity() {
         binding.startButton.setOnClickListener {
             // TODO: read a real gateway URL + token from settings/DataStore.
             val config = TunnelConfig(
-                gatewayUrl = "wss://gateway.sealgate.ai/tunnel",
+                gatewayUrl = "wss://dashboard.sealgate.ai/api/v1/stdio-tunnel/ws",
                 authToken = "replace-me",
             )
             TunnelService.start(this, config)

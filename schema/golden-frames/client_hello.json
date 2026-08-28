@@ -1,0 +1,10 @@
+{
+  "type": "client_hello",
+  "protocol_version": 2,
+  "device_id": "9f6b1c2e-4a7d-4d51-9b0a-2c1d3e4f5a6b",
+  "hostname": "eito-macbook.local",
+  "label": "Eito's MacBook",
+  "os": "macos",
+  "client_version": "0.0.1",
+  "currently_running": ["filesystem", "github"]
+}

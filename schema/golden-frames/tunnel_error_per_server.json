@@ -1,0 +1,7 @@
+{
+  "type": "tunnel_error",
+  "server_id": "filesystem",
+  "related_jsonrpc_id": null,
+  "code": "server_offline",
+  "message": "Local MCP process exited with code 1.\nLast output:\nError: EACCES: permission denied, scandir '/workspace/project'"
+}
