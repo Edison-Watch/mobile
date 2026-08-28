@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" width="1200" height="680" font-family="system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-label="Mobile-Stdiod architecture: a phone runs a daemon that dials out over a single wss WebSocket to a hosted gateway, which lets cloud agents reach the phone's local stdio MCP servers.">
+  <title>Mobile-Stdiod architecture</title>
+
+  <!-- ===== palette =====
+       bg #0A0E0F | accent bright #6FF0E0 | accent dim #34E0D0
+       text #E6EDEC | muted #859896 | node fill #111819 | border #1F2A2C -->
+
+  <defs>
+    <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
+      <circle cx="1" cy="1" r="1" fill="#12191A"/>
+    </pattern>
+
+    <!-- ChatGPT (OpenAI) mark, monochrome via currentColor -->
+    <symbol id="logo-chatgpt" viewBox="0 0 256 260">
+      <path fill="currentColor" d="M239.184 106.203a64.716 64.716 0 0 0-5.576-53.103C219.452 28.459 191 15.784 163.213 21.74A65.586 65.586 0 0 0 52.096 45.22a64.716 64.716 0 0 0-43.23 31.36c-14.31 24.602-11.061 55.634 8.033 76.74a64.665 64.665 0 0 0 5.525 53.102c14.174 24.65 42.644 37.324 70.446 31.36a64.72 64.72 0 0 0 48.754 21.744c28.481.025 53.714-18.361 62.414-45.481a64.767 64.767 0 0 0 43.229-31.36c14.137-24.558 10.875-55.423-8.083-76.483Zm-97.56 136.338a48.397 48.397 0 0 1-31.105-11.255l1.535-.87 51.67-29.825a8.595 8.595 0 0 0 4.247-7.367v-72.85l21.845 12.636c.218.111.37.32.409.563v60.367c-.056 26.818-21.783 48.545-48.601 48.601Zm-104.466-44.61a48.345 48.345 0 0 1-5.781-32.589l1.534.921 51.722 29.826a8.339 8.339 0 0 0 8.441 0l63.181-36.425v25.221a.87.87 0 0 1-.358.665l-52.335 30.184c-23.257 13.398-52.97 5.431-66.404-17.803ZM23.549 85.38a48.499 48.499 0 0 1 25.58-21.333v61.39a8.288 8.288 0 0 0 4.195 7.316l62.874 36.272-21.845 12.636a.819.819 0 0 1-.767 0L41.353 151.53c-23.211-13.454-31.171-43.144-17.804-66.405v.256Zm179.466 41.695-63.08-36.63L161.73 77.86a.819.819 0 0 1 .768 0l52.233 30.184a48.6 48.6 0 0 1-7.316 87.635v-61.391a8.544 8.544 0 0 0-4.4-7.213Zm21.742-32.69-1.535-.922-51.619-30.081a8.39 8.39 0 0 0-8.492 0L99.98 99.808V74.587a.716.716 0 0 1 .307-.665l52.233-30.133a48.652 48.652 0 0 1 72.236 50.391v.205ZM88.061 139.097l-21.845-12.585a.87.87 0 0 1-.41-.614V65.685a48.652 48.652 0 0 1 79.757-37.346l-1.535.87-51.67 29.825a8.595 8.595 0 0 0-4.246 7.367l-.051 72.697Zm11.868-25.58 28.138-16.217 28.188 16.218v32.434l-28.086 16.218-28.188-16.218-.052-32.434Z"/>
+    </symbol>
+
+    <!-- Claude (Anthropic) mark, brand terracotta -->
+    <symbol id="logo-claude" viewBox="0 0 256 257">
+      <path fill="#D97757" d="m50.228 170.321 50.357-28.257.843-2.463-.843-1.361h-2.462l-8.426-.518-28.775-.778-24.952-1.037-24.175-1.296-6.092-1.297L0 125.796l.583-3.759 5.12-3.434 7.324.648 16.202 1.101 24.304 1.685 17.629 1.037 26.118 2.722h4.148l.583-1.685-1.426-1.037-1.101-1.037-25.147-17.045-27.22-18.017-14.258-10.37-7.713-5.25-3.888-4.925-1.685-10.758 7-7.713 9.397.649 2.398.648 9.527 7.323 20.35 15.75L94.817 91.9l3.889 3.24 1.555-1.102.195-.777-1.75-2.917-14.453-26.118-15.425-26.572-6.87-11.018-1.814-6.61c-.648-2.723-1.102-4.991-1.102-7.778l7.972-10.823L71.42 0 82.05 1.426l4.472 3.888 6.61 15.101 10.694 23.786 16.591 32.34 4.861 9.592 2.592 8.879.973 2.722h1.685v-1.556l1.36-18.211 2.528-22.36 2.463-28.776.843-8.1 4.018-9.722 7.971-5.25 6.222 2.981 5.12 7.324-.713 4.73-3.046 19.768-5.962 30.98-3.889 20.739h2.268l2.593-2.593 10.499-13.934 17.628-22.036 7.778-8.749 9.073-9.657 5.833-4.601h11.018l8.1 12.055-3.628 12.443-11.342 14.388-9.398 12.184-13.48 18.147-8.426 14.518.778 1.166 2.01-.194 30.46-6.481 16.462-2.982 19.637-3.37 8.88 4.148.971 4.213-3.5 8.62-20.998 5.184-24.628 4.926-36.682 8.685-.454.324.519.648 16.526 1.555 7.065.389h17.304l32.21 2.398 8.426 5.574 5.055 6.805-.843 5.184-12.962 6.611-17.498-4.148-40.83-9.721-14-3.5h-1.944v1.167l11.666 11.406 21.387 19.314 26.767 24.887 1.36 6.157-3.434 4.86-3.63-.518-23.526-17.693-9.073-7.972-20.545-17.304h-1.36v1.814l4.73 6.935 25.017 37.59 1.296 11.536-1.814 3.76-6.481 2.268-7.13-1.297-14.647-20.544-15.1-23.138-12.185-20.739-1.49.843-7.194 77.448-3.37 3.953-7.778 2.981-6.48-4.925-3.436-7.972 3.435-15.749 4.148-20.544 3.37-16.333 3.046-20.285 1.815-6.74-.13-.454-1.49.194-15.295 20.999-23.267 31.433-18.406 19.702-4.407 1.75-7.648-3.954.713-7.064 4.277-6.286 25.47-32.405 15.36-20.092 9.917-11.6-.065-1.686h-.583L44.07 198.125l-12.055 1.555-5.185-4.86.648-7.972 2.463-2.593 20.35-13.999-.064.065Z"/>
+    </symbol>
+  </defs>
+
+  <!-- ===== background ===== -->
+  <rect x="0" y="0" width="1200" height="680" fill="#0A0E0F"/>
+  <rect x="0" y="0" width="1200" height="680" fill="url(#grid)"/>
+
+  <!-- ===== header ===== -->
+  <rect x="60" y="40" width="26" height="9" rx="2.5" fill="#6FF0E0"/>
+  <text x="94" y="49" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" letter-spacing="3" fill="#34E0D0">STDIO&#160;TUNNEL</text>
+  <text x="60" y="80" font-size="23" font-weight="700" fill="#E6EDEC">How Mobile-Stdiod reaches cloud agents</text>
+
+  <!-- ============================================================= -->
+  <!-- LEFT: PHONE (eito.me/ui iPhone-15-Pro mockup, hackbox recolor) -->
+  <!-- ============================================================= -->
+  <!-- side buttons -->
+  <rect x="93" y="182" width="3" height="24" rx="1.5" fill="#2C3B3D"/>
+  <rect x="93" y="228" width="3" height="42" rx="1.5" fill="#2C3B3D"/>
+  <rect x="266" y="214" width="3" height="52" rx="1.5" fill="#2C3B3D"/>
+  <!-- frame + screen -->
+  <rect x="96" y="100" width="170" height="360" rx="30" fill="#101819" stroke="#34E0D0" stroke-width="1.5"/>
+  <rect x="104" y="108" width="154" height="344" rx="23" fill="#0B1112" stroke="#172223" stroke-width="1"/>
+  <!-- dynamic island -->
+  <rect x="158" y="118" width="46" height="13" rx="6.5" fill="#000000"/>
+  <circle cx="196" cy="124.5" r="2.6" fill="#0A1414"/>
+  <!-- status bar -->
+  <text x="120" y="127" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" font-weight="700" fill="#E6EDEC">9:41</text>
+  <rect x="228" y="120" width="16" height="8" rx="2" fill="none" stroke="#859896" stroke-width="1"/>
+  <rect x="230" y="122" width="10" height="4" rx="1" fill="#859896"/>
+
+  <!-- app UI -->
+  <text x="120" y="180" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="2.5" fill="#34E0D0">STDIO&#160;TUNNEL</text>
+  <text x="120" y="202" font-size="15" font-weight="700" fill="#E6EDEC">Mobile-Stdiod</text>
+  <circle cx="124" cy="221" r="3.4" fill="#6FF0E0"/>
+  <text x="134" y="225" font-size="10.5" fill="#859896">connected &#183; dialing out</text>
+
+  <!-- Start / Stop control (active) -->
+  <rect x="120" y="248" width="122" height="42" rx="21" fill="#6FF0E0"/>
+  <text x="181" y="274" text-anchor="middle" font-size="13" font-weight="700" letter-spacing="1" fill="#062018">STOP TUNNEL</text>
+  <text x="181" y="316" text-anchor="middle" font-size="10.5" fill="#859896">tunnel running &#183; tap to stop</text>
+
+  <!-- home indicator -->
+  <rect x="156" y="436" width="50" height="4" rx="2" fill="#37474A"/>
+
+  <!-- ============================================================= -->
+  <!-- LOCAL stdio MCP servers box (on device, below phone)          -->
+  <!-- ============================================================= -->
+  <rect x="78" y="500" width="206" height="84" rx="14" fill="#111819" stroke="#1F2A2C" stroke-width="1.2"/>
+  <rect x="92" y="500" width="30" height="6" rx="3" fill="#34E0D0"/>
+  <text x="98" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" fill="#6FF0E0">&gt;_</text>
+  <text x="122" y="524" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" letter-spacing="2" fill="#34E0D0">ON&#160;DEVICE</text>
+  <text x="98" y="550" font-size="14" font-weight="600" fill="#E6EDEC">Local MCP servers</text>
+  <text x="98" y="569" font-size="11" fill="#859896">stdio processes &#183; stdin / stdout</text>
+
+  <!-- phone <-> stdio connector (bidirectional) -->
+  <line x1="181" y1="472" x2="181" y2="488" stroke="#34E0D0" stroke-width="2"/>
+  <polygon points="181,462 176,472 186,472" fill="#34E0D0"/>
+  <polygon points="181,498 176,488 186,488" fill="#34E0D0"/>
+  <text x="196" y="482" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#859896">bridge</text>
+
+  <!-- ============================================================= -->
+  <!-- OUTBOUND wss ARROW: phone -> gateway (the hero)               -->
+  <!-- ============================================================= -->
+  <line x1="266" y1="280" x2="494" y2="280" stroke="#6FF0E0" stroke-width="2.6"/>
+  <polygon points="508,280 494,273.5 494,286.5" fill="#6FF0E0"/>
+  <text x="389" y="262" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="13" font-weight="700" letter-spacing="1.5" fill="#6FF0E0">wss (outbound)</text>
+  <text x="389" y="305" text-anchor="middle" font-size="11" fill="#859896">dials out &#183; no inbound port</text>
+
+  <!-- ============================================================= -->
+  <!-- MIDDLE: GATEWAY (hosted)                                      -->
+  <!-- ============================================================= -->
+  <rect x="512" y="210" width="200" height="140" rx="16" fill="#111819" stroke="#1F2A2C" stroke-width="1.2"/>
+  <rect x="526" y="222" width="30" height="6" rx="3" fill="#34E0D0"/>
+  <!-- server/hub glyph -->
+  <g stroke="#6FF0E0" stroke-width="1.6" fill="none">
+    <rect x="648" y="230" width="30" height="10" rx="2.5"/>
+    <rect x="648" y="244" width="30" height="10" rx="2.5"/>
+  </g>
+  <circle cx="653.5" cy="235" r="1.6" fill="#6FF0E0"/>
+  <circle cx="653.5" cy="249" r="1.6" fill="#6FF0E0"/>
+  <text x="534" y="252" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" letter-spacing="2" fill="#34E0D0">HOSTED</text>
+  <text x="534" y="285" font-size="19" font-weight="700" fill="#E6EDEC">Gateway</text>
+  <text x="534" y="307" font-size="12" fill="#859896">relays the tunnel</text>
+  <text x="534" y="326" font-size="10.5" fill="#5F7371">one socket per device</text>
+
+  <!-- ============================================================= -->
+  <!-- GATEWAY <-> CLOUD AGENT (agent traffic, bidirectional)        -->
+  <!-- ============================================================= -->
+  <line x1="730" y1="280" x2="854" y2="280" stroke="#34E0D0" stroke-width="2"/>
+  <polygon points="718,280 730,274 730,286" fill="#34E0D0"/>
+  <polygon points="866,280 854,274 854,286" fill="#34E0D0"/>
+  <text x="792" y="262" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" letter-spacing="1" fill="#859896">agent traffic</text>
+
+  <!-- ============================================================= -->
+  <!-- RIGHT: CLOUD AGENT                                            -->
+  <!-- ============================================================= -->
+  <rect x="872" y="205" width="256" height="150" rx="16" fill="#111819" stroke="#1F2A2C" stroke-width="1.2"/>
+  <rect x="886" y="217" width="30" height="6" rx="3" fill="#34E0D0"/>
+  <text x="902" y="247" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" letter-spacing="2" fill="#34E0D0">OFF&#160;DEVICE</text>
+  <text x="902" y="278" font-size="19" font-weight="700" fill="#E6EDEC">Cloud agent</text>
+  <text x="902" y="300" font-size="12" fill="#859896">ChatGPT / Claude / &#8230;</text>
+  <use href="#logo-chatgpt" x="1044" y="230" width="30" height="30" color="#D7EFEC"/>
+  <use href="#logo-claude" x="1082" y="230" width="30" height="30"/>
+
+  <!-- ===== bottom caption ===== -->
+  <line x1="415" y1="616" x2="785" y2="616" stroke="#1F2A2C" stroke-width="1"/>
+  <text x="404" y="642" font-size="14" fill="#E6EDEC">The daemon <tspan fill="#6FF0E0" font-weight="700">dials out</tspan> &#183; data &amp; logins stay on the device</text>
+</svg>

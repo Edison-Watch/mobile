@@ -18,20 +18,9 @@ Based on the design in
 
 ## Architecture
 
-```
-        Phone (Mobile-Stdiod)                        Cloud
-  ┌───────────────────────────────┐         ┌──────────────────────┐
-  │  MainActivity (start / stop)  │         │                      │
-  │             │                 │         │                      │
-  │             ▼                 │         │                      │
-  │  TunnelService  ──────────────┼── wss ──┼──►  Gateway  ──► Cloud agent
-  │  (foreground service)         │ outbound│         (ChatGPT / Claude / …)
-  │             │                 │         │                      │
-  │             ▼                 │         └──────────────────────┘
-  │  local stdio MCP server(s)    │
-  │  (stdin / stdout process)     │
-  └───────────────────────────────┘
-```
+<p align="center">
+  <img src=".github/assets/architecture.svg" alt="Mobile-Stdiod architecture: a phone runs a daemon that dials out over a single wss WebSocket to a hosted gateway, which lets cloud agents reach the phone's local stdio MCP servers" width="900">
+</p>
 
 - The daemon opens **one outbound WebSocket** — no incoming ports, works behind
   NAT and mobile carriers.
