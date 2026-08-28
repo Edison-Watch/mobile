@@ -1,41 +1,38 @@
 # Contributing
 
-## Getting Started
+## Getting started
 
-1.  **Prerequisites**:
-    *   Rust >= 1.75
-    *   Bun >= 1.0 (needed for `make ci` tooling - Biome, Knip, audit,
-        file_len_check - as well as the optional frontend / docs site)
+1. **Prerequisites**
+   - Android Studio (Ladybug / 2024.2+ recommended)
+   - JDK 17+
+   - Android SDK Platform 35 (min SDK 26)
 
-2.  **Setup**:
-    ```bash
-    cargo build --workspace   # backend (engine + appctl)
-    bun install               # optional: frontend / docs
-    ```
+2. **Setup**
 
-3.  **Run Tests**:
-    ```bash
-    make test
-    ```
+   Open the project in Android Studio and let Gradle sync, or use the wrapper
+   directly:
+   ```bash
+   ./gradlew assembleDebug
+   ```
 
-## Development Workflow
+3. **Run tests**
+   ```bash
+   ./gradlew testDebugUnitTest
+   ```
 
-1.  Create a new branch for your feature/fix.
-2.  Make your changes.
-3.  Ensure code quality commands pass:
-    ```bash
-    make ci
-    ```
-    This runs formatting (Biome + cargo fmt), linting (Biome + Clippy), dead code detection (Knip), and tests.
+## Development workflow
 
-## Code Style
+1. Create a branch for your feature/fix.
+2. Make your changes; keep the app buildable and installable.
+3. Before opening a PR, make sure these pass locally:
+   ```bash
+   ./gradlew assembleDebug testDebugUnitTest lintDebug
+   ```
+4. Open a pull request against `main`.
 
-*   **Frontend**: React + TypeScript, follow Biome's rules.
-*   **Backend**: Rust, follow standard idiomatic Rust and `cargo clippy`.
-*   Use Biome for formatting and linting (handled by `make fmt` and `make lint`).
-*   Add tests for new features.
+## Conventions
 
-## Pull Requests
-
-*   Keep PRs focused on a single change.
-*   Update documentation if necessary.
+- Kotlin, Android Views + View Binding (no Compose in this template).
+- Add dependencies to the version catalog (`gradle/libs.versions.toml`) and
+  reference them as `libs.*`; avoid hard-coded versions in module build files.
+- Do not commit signing material (`*.jks`, `*.keystore`) or `local.properties`.

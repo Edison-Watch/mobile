@@ -1,11 +1,6 @@
 version: 2
 updates:
-  - package-ecosystem: "bun"
-    directory: "/"
-    schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 5
-  - package-ecosystem: "cargo"
+  - package-ecosystem: "gradle"
     directory: "/"
     schedule:
       interval: "monthly"

@@ -8,8 +8,9 @@ Brief description of changes.
 
 ## Testing
 
-- [ ] Tests pass (`make test`)
-- [ ] Linting passes (`make ci`)
+- [ ] Build passes (`./gradlew assembleDebug`)
+- [ ] Unit tests pass (`./gradlew testDebugUnitTest`)
+- [ ] Lint passes (`./gradlew lintDebug`)
 
 ## Related Issues
 

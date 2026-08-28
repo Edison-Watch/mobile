@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Mobile-Stdiod</string>
+
+    <string name="action_start">Start tunnel</string>
+    <string name="action_stop">Stop tunnel</string>
+
+    <string name="status_prefix">Tunnel: %1$s</string>
+    <string name="status_running">running</string>
+    <string name="status_stopped">stopped</string>
+
+    <string name="tunnel_channel_name">Stdio tunnel</string>
+    <string name="tunnel_channel_description">Ongoing status of the stdio tunnel connection.</string>
+    <string name="tunnel_notification_title">Stdio tunnel active</string>
+    <string name="tunnel_notification_text">Connected to the gateway.</string>
+</resources>

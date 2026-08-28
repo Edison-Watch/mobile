@@ -1,3 +1,0 @@
-[workspace]
-members = ["crates/engine", "crates/config", "crates/cli", "crates/assetgen"]
-resolver = "2"

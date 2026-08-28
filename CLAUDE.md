@@ -1,106 +1,49 @@
-This file provides guidance to AI agents working with code in this repository.
+# CLAUDE.md
 
-## Project Overview
+Guidance for AI agents working in this repository.
 
-A Rust application-server template. Business logic is written **once** as a typed
-async `Command` in the `engine` crate and exposed over multiple transports - CLI,
-HTTP API, and (later) MCP - through the `appctl` binary. The `engine` core has no
-transport dependency; transports live in `crates/cli` behind cargo features. An
-optional React/Vite frontend (`frontend/`) talks to the HTTP API over `fetch`.
-**Note:** migrated away from Tauri/desktop and from Python - Rust for backend,
-Node/Bun for frontend/scripts.
-**Before any other work in this repo, enable prek:** `bun add -g prek && prek install`. Hooks are defined in `prek.toml`.
+## Project overview
 
-## Common Commands
+**Mobile-Stdiod** is an Android app template for an **stdio tunnel**: a
+device-side daemon that lets cloud agents reach local MCP servers over a single
+**outbound** WebSocket to a hosted gateway. See [`README.md`](README.md) for the
+architecture diagram and background.
+
+The tunnel transport itself is a stub — the template gives you a building,
+runnable app shell (Start/Stop UI + foreground service) to implement it in.
+
+## Stack
+
+- **Language:** Kotlin (JDK 17 toolchain)
+- **UI:** Android Views + View Binding (no Jetpack Compose)
+- **Build:** Gradle 8.9 (Kotlin DSL) with a version catalog in
+  `gradle/libs.versions.toml`
+- **Android Gradle Plugin:** 8.7.x · **compileSdk/targetSdk:** 35 · **minSdk:** 26
+- Single module: `:app`, namespace `ai.sealgate.stdiod`
+
+## Common commands
 
 ```bash
-make run                # Run the HTTP API server (= appctl serve)
-cargo test --workspace  # Run Rust tests
-cargo clippy --workspace --all-targets -- -D warnings
-appctl call ping --json # Invoke a command headlessly
-make new name=fetch_url # Scaffold a new engine command
-make init PROFILE=... DRY_RUN=1  # Onboard the template into a real project
-make dev                # Optional frontend: Vite dev server, /api → appctl serve
+./gradlew assembleDebug        # build the debug APK
+./gradlew testDebugUnitTest    # JVM unit tests
+./gradlew lint                 # Android lint
+./gradlew installDebug         # install on a connected device/emulator
 ```
 
-## Architecture
+## Where things live
 
-- **crates/engine/** - typed async `Command` registry with `inventory`
-  self-registration; per-request `Ctx`; capability traits. No transport deps.
-- **crates/cli/** - the `appctl` binary; `cli` and `http-api` are cargo features
-  (both default), so `appctl init` can prune a surface and still compile.
-- **crates/config/** - crate `app-config`; `AppConfig` (secrets) vs sanitized
-  `FrontendConfig` (served over HTTP). The sanitizer is a security boundary.
-- **frontend/** - optional React/Vite app, `fetch`-based `/api/v1` client.
+- `app/src/main/java/ai/sealgate/stdiod/MainActivity.kt` — start/stop control UI.
+- `app/src/main/java/ai/sealgate/stdiod/TunnelService.kt` — foreground service;
+  `connect()` is the stub where the WebSocket + stdio bridging goes.
+- `app/src/main/java/ai/sealgate/stdiod/TunnelConfig.kt` — connection settings.
+- `app/src/main/res/` — layouts, strings, theme, adaptive launcher icon.
+- Versions are centralized in `gradle/libs.versions.toml`; add libraries there,
+  reference them as `libs.*` in `app/build.gradle.kts`.
 
-> **Making backend changes?** Use the `update-backend` skill for architecture details, command patterns, trait implementations, config access, and `appctl` testing workflows.
+## Conventions
 
-## Code Style
-
-Enforced by Biome (TS) and `cargo fmt` + Clippy (Rust). See `biome.json`.
-
-## Configuration Pattern
-
-Configuration is handled in Rust and exposed to the frontend via the sanitized
-`FrontendConfig`. Source of truth: `crates/config/global_config.yaml` (`.env` /
-`APP__`-prefixed env overrides; `APP_CONFIG_PATH` for a deployed binary).
-
-```rust
-let config = app_config::get_config();
-println!("Model: {}", config.default_llm.default_model);
-```
-
-## Commit Message Convention
-
-Use emoji prefixes indicating change type and magnitude (multiple emojis = 5+ files):
-- 🏗️ initial implementation
-- 🔨 feature changes
-- 🐛 bugfix
-- ✨ formatting/linting only
-- ✅ feature complete with E2E tests
-- ⚙️ config changes
-- 💽 DB schema/migrations
-
-## Long-Running Code Pattern
-
-Structure as: `init()` → `continue(id)` → `cleanup(id)`
-- Keep state serializable
-- Use descriptive IDs (runId, taskId)
-- Handle rate limits, timeouts, retries at system boundaries
-
-## Subagents
-
-- Folder-size CI failure → spawn subagent `.claude/agents/folder-refactor-advisor.md`.
-
-## Dual-tool config (Claude + Codex)
-
-Skills and subagents are shared with Codex CLI. Shared skills live in
-`.agents/skills/<name>/SKILL.md` (symlinked into `.claude/skills/`); subagents
-in `.claude/agents/<name>.md` are the source of truth and generate
-`.codex/agents/<name>.toml`. After editing anything under `.claude/skills/`,
-`.claude/agents/`, `.agents/skills/`, or `.codex/agents/`, run
-`make sync-agent-config` (prek enforces zero drift). See the `manage-agent-config`
-skill and `.claude/rules/codex-claude-sync.md`.
-
-## Git Workflow
-- **Protected Branch**: `main` is protected. Do not push directly to `main`. Use PRs.
-- **Merge Strategy**: Squash and merge.
-- **Pre-commit CI gate**: Always run `make ci` before committing any changes. Ensure it passes with zero errors. Do not commit if `make ci` fails - fix all issues first, then commit.
-- **Prek hooks**: Always run `prek install` before starting work on a new PR to ensure Git hooks are active.
-
-## Runbooks
-
-Operational runbooks live in `docs/runbooks/`. After resolving a difficult issue that required significant back-and-forth or investigation, ask the user: "Should I add a runbook for this?" and if yes, create a new markdown file in `docs/runbooks/` documenting the symptoms, root cause, and resolution steps.
-
----
-
-## Automated Translation (Jules Sync)
-
-Docs under `docs/content/` are auto-translated by the **Jules Translation Sync**
-workflow (`.github/workflows/jules-sync-translations.yml`). Do NOT manually
-translate doc files - edit the English source and the workflow will update all
-locales (`zh`, `es`, `ja`).
-
-See [`docs/translation-guide.md`](docs/translation-guide.md) for the full
-glossary, file naming conventions, and translation rules.
-See [`docs/ops.md`](docs/ops.md) for operational runbook and failure modes.
+- Keep the app buildable and installable at every step.
+- Prefer the version catalog over hard-coded dependency versions.
+- The tunnel is long-lived: it must run as a foreground service with an ongoing
+  notification, and reconnect with backoff.
+- Do not commit signing material (`*.jks`, `*.keystore`) or `local.properties`.
