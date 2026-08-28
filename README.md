@@ -1,4 +1,8 @@
-# Mobile-Stdiod
+<p align="center">
+  <img src=".github/assets/banner.png" alt="Mobile-Stdiod — stdio tunnels: cloud agents reach your local MCPs" width="820">
+</p>
+
+<h1 align="center">Mobile-Stdiod</h1>
 
 An Android app template for an **stdio tunnel** — a device-side daemon that lets
 cloud agents reach the MCP (Model Context Protocol) servers running on your
