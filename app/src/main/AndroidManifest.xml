@@ -33,6 +33,15 @@
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
 
+    <!-- The usb module talks to devices plugged into the phone's USB port via
+         the USB Host API (USB-OTG). This needs no runtime <uses-permission> -
+         host access is granted per-device through a system dialog at runtime.
+         required=false so the app still installs on phones without OTG; those
+         devices simply never enumerate. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"

@@ -18,7 +18,7 @@ daemon (protocol v2; see `schema/tunnel-protocol.json`). Where the desktop
 daemon spawns `npx`/`uvx` subprocesses, this app answers MCP requests from
 **in-process Kotlin modules** — a phone can't spawn stdio servers. The built-in
 modules are `deviceinfo` (`get_device_info`), `battery` (`get_battery_status`),
-`wifi` (`get_wifi_status`), and `bluetooth`. The `bluetooth` module reads state
+`wifi` (`get_wifi_status`), `bluetooth`, and `usb`. The `bluetooth` module reads state
 (`get_bluetooth_status`, `list_bonded_devices`) **and** performs the write/control
 actions a normal, unprivileged APK is permitted: BLE discovery and GATT
 read/write (`bt_scan`, `bt_gatt_connect`, `bt_gatt_services`, `bt_gatt_read`,
@@ -46,6 +46,17 @@ For a full, real-device worked example — reading an NFC card off a Flipper Zer
 over its BLE serial-RPC service — see
 [Flipper Zero over BLE](#flipper-zero-over-ble-worked-example) below.
 
+The `usb` module talks to devices plugged into the phone's USB port via the
+**Android USB Host API** (USB-OTG): `usb_list_devices` enumerates attached devices
+(vendor/product id, string descriptors, `has_permission`), `usb_request_permission`
+fires the per-device system dialog USB host access needs (there is no manifest
+permission for it), `usb_open` claims an interface and returns its endpoints, and
+`usb_bulk_transfer` / `usb_control_transfer` / `usb_close` drive raw bulk and
+control transfers (hex payloads, direction inferred from the endpoint address /
+`request_type` top bit) — protocol-agnostic primitives an agent can layer CDC-ACM,
+FTDI, HID or any vendor protocol on top of. A **USB-OTG adapter** is required, and
+most devices need `usb_request_permission` approved on the phone before any I/O.
+
 ## Architecture
 
 ```
@@ -65,7 +76,7 @@ over its BLE serial-RPC service — see
   │             ▼                 │
   │  built-in MCP modules         │
   │  (deviceinfo, battery,        │
-  │   wifi, bluetooth)            │
+  │   wifi, bluetooth, usb)       │
   └───────────────────────────────┘
 ```
 
@@ -89,7 +100,7 @@ over its BLE serial-RPC service — see
 │   │   │   ├── TunnelService.kt     # foreground service; owns TunnelClient
 │   │   │   ├── TunnelConfig.kt      # gateway URL + auth token value type
 │   │   │   ├── tunnel/              # wire protocol codec + WebSocket client
-│   │   │   └── mcp/                 # in-process MCP modules (deviceinfo, battery, wifi, bluetooth read + control)
+│   │   │   └── mcp/                 # in-process MCP modules (deviceinfo, battery, wifi, bluetooth read + control, usb host)
 │   │   └── res/                     # layout, strings, theme, adaptive icon
 │   └── src/test/                    # JVM tests incl. golden-frame round trips
 ├── schema/
