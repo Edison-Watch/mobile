@@ -16,8 +16,10 @@ Based on the design in
 The tunnel speaks the same wire protocol as the desktop `sealgate-stdiod`
 daemon (protocol v2; see `schema/tunnel-protocol.json`). Where the desktop
 daemon spawns `npx`/`uvx` subprocesses, this app answers MCP requests from
-**in-process Kotlin modules** — a phone can't spawn stdio servers. The first
-module is `deviceinfo` (`get_device_info`).
+**in-process Kotlin modules** — a phone can't spawn stdio servers. The built-in
+modules are `deviceinfo` (`get_device_info`), `battery` (`get_battery_status`),
+`wifi` (`get_wifi_status`), and `bluetooth` (`get_bluetooth_status`,
+`list_bonded_devices`).
 
 ## Architecture
 
@@ -37,7 +39,8 @@ module is `deviceinfo` (`get_device_info`).
   │             │                 │
   │             ▼                 │
   │  built-in MCP modules         │
-  │  (deviceinfo, …)              │
+  │  (deviceinfo, battery,        │
+  │   wifi, bluetooth)            │
   └───────────────────────────────┘
 ```
 
@@ -61,7 +64,7 @@ module is `deviceinfo` (`get_device_info`).
 │   │   │   ├── TunnelService.kt     # foreground service; owns TunnelClient
 │   │   │   ├── TunnelConfig.kt      # gateway URL + auth token value type
 │   │   │   ├── tunnel/              # wire protocol codec + WebSocket client
-│   │   │   └── mcp/                 # in-process MCP modules (deviceinfo, …)
+│   │   │   └── mcp/                 # in-process MCP modules (deviceinfo, battery, wifi, bluetooth)
 │   │   └── res/                     # layout, strings, theme, adaptive icon
 │   └── src/test/                    # JVM tests incl. golden-frame round trips
 ├── schema/

@@ -11,8 +11,14 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import ai.sealgate.stdiod.mcp.AndroidBatterySource
+import ai.sealgate.stdiod.mcp.AndroidBluetoothSource
 import ai.sealgate.stdiod.mcp.AndroidDeviceInfo
+import ai.sealgate.stdiod.mcp.AndroidWifiSource
+import ai.sealgate.stdiod.mcp.BatteryModule
+import ai.sealgate.stdiod.mcp.BluetoothModule
 import ai.sealgate.stdiod.mcp.DeviceInfoModule
+import ai.sealgate.stdiod.mcp.WifiModule
 import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
 import ai.sealgate.stdiod.tunnel.TunnelClient
 import ai.sealgate.stdiod.tunnel.TunnelState
@@ -72,7 +78,12 @@ class TunnelService : LifecycleService() {
             gatewayUrl = config.gatewayUrl,
             authToken = config.authToken,
             identity = identity,
-            modules = listOf(DeviceInfoModule(AndroidDeviceInfo)),
+            modules = listOf(
+                DeviceInfoModule(AndroidDeviceInfo),
+                BatteryModule(AndroidBatterySource(this)),
+                WifiModule(AndroidWifiSource(this)),
+                BluetoothModule(AndroidBluetoothSource(this)),
+            ),
             scope = lifecycleScope,
         )
         tunnelClient = client

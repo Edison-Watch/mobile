@@ -49,9 +49,12 @@ spawn error.
 - `app/src/main/java/ai/sealgate/stdiod/tunnel/` — wire protocol codec
   (`TunnelFrame.kt`), WebSocket client + reconnect (`TunnelClient.kt`),
   persisted device identity (`DeviceIdentityStore.kt`).
-- `app/src/main/java/ai/sealgate/stdiod/mcp/` — in-process MCP modules;
-  add a new hardware module by extending `BaseMcpModule` and registering it
-  in `TunnelService.connect()`.
+- `app/src/main/java/ai/sealgate/stdiod/mcp/` — in-process MCP modules
+  (`deviceinfo`, `battery`, `wifi`, `bluetooth`); add a new hardware module by
+  extending `BaseMcpModule` and registering it in `TunnelService.connect()`.
+  Hardware access goes behind a small source interface (e.g. `BatterySource`)
+  with the Android implementation in its own `Android*` file, so module logic
+  stays JVM-testable with fakes.
 - `app/src/test/` — JVM tests; `GoldenFramesTest` round-trips every fixture
   in `schema/golden-frames/` and fails on codec drift.
 - `app/src/main/res/` — layouts, strings, theme, adaptive launcher icon.
