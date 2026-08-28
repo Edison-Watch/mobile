@@ -1,0 +1,24 @@
+{
+  "type": "server_hello",
+  "protocol_version": 2,
+  "servers": [
+    {
+      "server_id": "filesystem",
+      "name": "filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{PP}"],
+      "env": {},
+      "working_dir": "/workspace/project",
+      "enabled": true
+    },
+    {
+      "server_id": "github",
+      "name": "github",
+      "command": "uvx",
+      "args": ["mcp-server-github"],
+      "env": {},
+      "working_dir": null,
+      "enabled": false
+    }
+  ]
+}

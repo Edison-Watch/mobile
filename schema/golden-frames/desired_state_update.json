@@ -1,0 +1,26 @@
+{
+  "type": "desired_state_update",
+  "added": [
+    {
+      "server_id": "fetch",
+      "name": "fetch",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "env": {},
+      "working_dir": null,
+      "enabled": true
+    }
+  ],
+  "updated": [
+    {
+      "server_id": "filesystem",
+      "name": "filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "{PP}"],
+      "env": {},
+      "working_dir": "/workspace/project",
+      "enabled": true
+    }
+  ],
+  "removed": ["github"]
+}

@@ -1,0 +1,10 @@
+{
+  "type": "client_hello",
+  "protocol_version": 2,
+  "device_id": "3d2a9c14-7b6e-4f28-a1c5-8e9f0b1d2c3e",
+  "hostname": "Pixel 9",
+  "label": "Eito's Pixel 9",
+  "os": "android",
+  "client_version": "0.1.0",
+  "currently_running": ["deviceinfo"]
+}

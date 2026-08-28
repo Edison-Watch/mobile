@@ -1,0 +1,8 @@
+{
+  "type": "server_env_update",
+  "server_id": "github",
+  "env": {
+    "GITHUB_PERSONAL_ACCESS_TOKEN": "example-token-value",
+    "FASTMCP_LOG_LEVEL": "ERROR"
+  }
+}

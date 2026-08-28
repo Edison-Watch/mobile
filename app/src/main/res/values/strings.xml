@@ -5,11 +5,20 @@
     <string name="action_stop">Stop tunnel</string>
 
     <string name="status_prefix">Tunnel: %1$s</string>
-    <string name="status_running">running</string>
     <string name="status_stopped">stopped</string>
+
+    <string name="version_label">v%1$s (build %2$d)</string>
+
+    <string name="hint_gateway_url">Gateway WebSocket URL</string>
+    <string name="hint_api_key">SealGate API key</string>
+    <string name="error_gateway_url">Must start with wss:// (or ws:// for local dev)</string>
+    <string name="error_api_key">Paste your API key from the dashboard</string>
 
     <string name="tunnel_channel_name">Stdio tunnel</string>
     <string name="tunnel_channel_description">Ongoing status of the stdio tunnel connection.</string>
     <string name="tunnel_notification_title">Stdio tunnel active</string>
     <string name="tunnel_notification_text">Connected to the gateway.</string>
+    <string name="tunnel_state_connected">Connected to the gateway.</string>
+    <string name="tunnel_state_connecting">Connecting to the gateway…</string>
+    <string name="tunnel_state_disconnected">Disconnected. Reconnecting with backoff.</string>
 </resources>

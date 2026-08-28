@@ -9,6 +9,38 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Post the ongoing "tunnel connected" notification (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The wifi module reads radio state, link speed, and SSID. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- The bluetooth module reads adapter state and bonded devices and,
+         with the control tools, connects to / scans for devices:
+         legacy install-time permissions up to Android 11, the
+         "Nearby devices" runtime permissions from Android 12. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <!-- BLUETOOTH_ADMIN backs createBond() and scanning before Android 12;
+         from Android 12 those are gated by the runtime permissions below. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <!-- Connect to / control paired devices (GATT, RFCOMM/SPP, pairing). -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Scan for BLE peripherals (Android 12+). neverForLocation asserts we do
+         not use scan results to derive physical location - we only connect to
+         and control devices - so we need neither ACCESS_FINE_LOCATION nor the
+         location-derivation path. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+
+    <!-- The usb module talks to devices plugged into the phone's USB port via
+         the USB Host API (USB-OTG). This needs no runtime <uses-permission> -
+         host access is granted per-device through a system dialog at runtime.
+         required=false so the app still installs on phones without OTG; those
+         devices simply never enumerate. -->
+    <uses-feature
+        android:name="android.hardware.usb.host"
+        android:required="false" />
 
     <application
         android:allowBackup="true"

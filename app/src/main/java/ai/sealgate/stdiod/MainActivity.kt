@@ -7,7 +7,12 @@ import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import ai.sealgate.stdiod.databinding.ActivityMainBinding
+import ai.sealgate.stdiod.tunnel.TunnelState
+import kotlinx.coroutines.launch
 
 /**
  * Single-screen control surface for the tunnel: a status line and Start/Stop
@@ -21,29 +26,64 @@ class MainActivity : AppCompatActivity() {
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
 
+    private val requestBluetoothPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* best effort */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         maybeRequestNotificationPermission()
+        maybeRequestBluetoothPermission()
+
+        binding.versionText.text =
+            getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+
+        val stored = TunnelSettings.load(this)
+        binding.gatewayUrlInput.setText(stored.gatewayUrl)
+        binding.apiKeyInput.setText(stored.authToken)
 
         binding.startButton.setOnClickListener {
-            // TODO: read a real gateway URL + token from settings/DataStore.
             val config = TunnelConfig(
-                gatewayUrl = "wss://gateway.sealgate.ai/tunnel",
-                authToken = "replace-me",
+                gatewayUrl = binding.gatewayUrlInput.text?.toString()?.trim().orEmpty(),
+                authToken = binding.apiKeyInput.text?.toString()?.trim().orEmpty(),
             )
+            binding.gatewayUrlLayout.error = null
+            binding.apiKeyLayout.error = null
+            if (!config.isValid()) {
+                if (!config.gatewayUrl.startsWith("wss://") && !config.gatewayUrl.startsWith("ws://")) {
+                    binding.gatewayUrlLayout.error = getString(R.string.error_gateway_url)
+                }
+                if (config.authToken.isBlank()) {
+                    binding.apiKeyLayout.error = getString(R.string.error_api_key)
+                }
+                return@setOnClickListener
+            }
+            TunnelSettings.save(this, config)
             TunnelService.start(this, config)
-            setStatus(getString(R.string.status_running))
         }
 
         binding.stopButton.setOnClickListener {
             TunnelService.stop(this)
-            setStatus(getString(R.string.status_stopped))
         }
 
-        setStatus(getString(R.string.status_stopped))
+        // The service owns the tunnel, so the status line mirrors its published
+        // state rather than guessing from button presses; this also survives
+        // the activity being recreated while the tunnel keeps running.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TunnelServiceState.state.collect { state ->
+                    val text = when (state) {
+                        TunnelState.Connected -> getString(R.string.tunnel_state_connected)
+                        TunnelState.Connecting -> getString(R.string.tunnel_state_connecting)
+                        TunnelState.Disconnected -> getString(R.string.tunnel_state_disconnected)
+                        null -> getString(R.string.status_stopped)
+                    }
+                    setStatus(text)
+                }
+            }
+        }
     }
 
     private fun setStatus(text: String) {
@@ -57,5 +97,21 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
         if (!granted) requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    // Best effort, like notifications: the bluetooth module also reports a
+    // missing "Nearby devices" permission in-band if the user declines here.
+    // From Android 12 the control tools need both BLUETOOTH_CONNECT (connect,
+    // pair, GATT, SPP) and BLUETOOTH_SCAN (bt_scan); request whichever is not
+    // yet granted.
+    private fun maybeRequestBluetoothPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val wanted = listOf(
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN,
+        ).filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (wanted.isNotEmpty()) requestBluetoothPermissions.launch(wanted.toTypedArray())
     }
 }
