@@ -7,7 +7,12 @@ import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import ai.sealgate.stdiod.databinding.ActivityMainBinding
+import ai.sealgate.stdiod.tunnel.TunnelState
+import kotlinx.coroutines.launch
 
 /**
  * Single-screen control surface for the tunnel: a status line and Start/Stop
@@ -50,15 +55,28 @@ class MainActivity : AppCompatActivity() {
             }
             TunnelSettings.save(this, config)
             TunnelService.start(this, config)
-            setStatus(getString(R.string.status_running))
         }
 
         binding.stopButton.setOnClickListener {
             TunnelService.stop(this)
-            setStatus(getString(R.string.status_stopped))
         }
 
-        setStatus(getString(R.string.status_stopped))
+        // The service owns the tunnel, so the status line mirrors its published
+        // state rather than guessing from button presses; this also survives
+        // the activity being recreated while the tunnel keeps running.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                TunnelServiceState.state.collect { state ->
+                    val text = when (state) {
+                        TunnelState.Connected -> getString(R.string.tunnel_state_connected)
+                        TunnelState.Connecting -> getString(R.string.tunnel_state_connecting)
+                        TunnelState.Disconnected -> getString(R.string.tunnel_state_disconnected)
+                        null -> getString(R.string.status_stopped)
+                    }
+                    setStatus(text)
+                }
+            }
+        }
     }
 
     private fun setStatus(text: String) {
