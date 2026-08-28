@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 800" width="380" height="800" font-family="Roboto, Inter, system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-label="Android lock screen showing the Mobile-Stdiod foreground-service notification: Stdio tunnel active, Connected to the gateway.">
+  <title>Mobile-Stdiod notification mockup</title>
+
+  <!-- phone frame -->
+  <rect x="8" y="8" width="364" height="784" rx="46" fill="#05070A" stroke="#23282B" stroke-width="2"/>
+  <!-- screen / wallpaper -->
+  <rect x="16" y="16" width="348" height="768" rx="40" fill="#0B0D10"/>
+  <!-- subtle wallpaper wash (flat) -->
+  <rect x="16" y="16" width="348" height="360" rx="40" fill="#0E1416"/>
+
+  <!-- punch-hole camera -->
+  <circle cx="190" cy="38" r="5" fill="#000000"/>
+
+  <!-- status bar -->
+  <text x="44" y="43" font-size="13" font-weight="600" fill="#E8EAED" font-family="Roboto, ui-monospace, monospace">9:41</text>
+  <!-- signal / wifi / battery, simplified -->
+  <g fill="#E8EAED">
+    <rect x="300" y="34" width="3" height="8" rx="1"/><rect x="305" y="31" width="3" height="11" rx="1"/><rect x="310" y="28" width="3" height="14" rx="1"/>
+    <path d="M320 32c5-5 13-5 18 0l-9 9z"/>
+    <rect x="343" y="31" width="16" height="9" rx="2" fill="none" stroke="#E8EAED" stroke-width="1.2"/>
+    <rect x="345" y="33" width="10" height="5" rx="1"/>
+  </g>
+
+  <!-- lock icon -->
+  <g transform="translate(184,86)" stroke="#9AA0A6" stroke-width="1.6" fill="none">
+    <path d="M3 7V5a4 4 0 0 1 8 0v2"/>
+    <rect x="1" y="7" width="12" height="9" rx="2" fill="#9AA0A6" stroke="none"/>
+  </g>
+
+  <!-- lock-screen clock -->
+  <text x="190" y="180" text-anchor="middle" font-size="72" font-weight="300" fill="#F1F3F4" letter-spacing="1">9:41</text>
+  <text x="190" y="214" text-anchor="middle" font-size="15" font-weight="500" fill="#C3FFFD">Thu, Aug 28</text>
+
+  <!-- ============ notification card (foreground service, silent/ongoing) ============ -->
+  <rect x="34" y="286" width="312" height="118" rx="26" fill="#1B1C1E"/>
+
+  <!-- app icon: circular, cyan, terminal glyph -->
+  <circle cx="62" cy="320" r="14" fill="#C3FFFD"/>
+  <text x="62" y="325" text-anchor="middle" font-size="13" font-weight="700" fill="#06201E" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">&gt;_</text>
+
+  <!-- app name + meta row -->
+  <text x="84" y="316" font-size="12" font-weight="500" fill="#9AA0A6">Mobile-Stdiod</text>
+  <circle cx="163" cy="313" r="1.5" fill="#9AA0A6"/>
+  <text x="171" y="316" font-size="12" fill="#9AA0A6">now</text>
+  <!-- ongoing (non-dismissable) hint -->
+  <text x="315" y="316" text-anchor="end" font-size="10.5" letter-spacing="0.5" fill="#6B7275">ONGOING</text>
+
+  <!-- title -->
+  <text x="52" y="352" font-size="15.5" font-weight="600" fill="#E8EAED">Stdio tunnel active</text>
+  <!-- body -->
+  <text x="52" y="376" font-size="13.5" fill="#BDC1C6">Connected to the gateway.</text>
+
+  <!-- caption chip: this is what the foreground service posts -->
+  <text x="190" y="438" text-anchor="middle" font-size="11" fill="#6B7C7A">Ongoing foreground-service notification</text>
+  <text x="190" y="455" text-anchor="middle" font-size="11" fill="#5C6D6B">channel “Stdio tunnel” · silent (IMPORTANCE_LOW)</text>
+
+  <!-- home indicator -->
+  <rect x="150" y="762" width="80" height="5" rx="2.5" fill="#3A4144"/>
+</svg>

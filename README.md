@@ -29,25 +29,7 @@ Based on the design in
   **stdio** (stdin/stdout) framing.
 - It runs as an Android **foreground service** so the OS keeps it alive.
 
-## Project layout
-
-```
-.
-├── app/
-│   └── src/main/
-│       ├── AndroidManifest.xml
-│       ├── java/ai/sealgate/stdiod/
-│       │   ├── MainActivity.kt      # start/stop UI (View-based, no Compose)
-│       │   ├── TunnelService.kt     # foreground service; tunnel lifecycle stub
-│       │   └── TunnelConfig.kt      # gateway URL + auth token value type
-│       └── res/                     # layout, strings, theme, adaptive icon
-├── build.gradle.kts                 # root build
-├── settings.gradle.kts
-├── gradle/libs.versions.toml        # version catalog
-└── gradlew / gradlew.bat            # Gradle wrapper (Gradle 8.9)
-```
-
-## Requirements
+## <img src=".github/assets/android.svg" alt="" height="15"> Requirements
 
 - Android Studio (Ladybug / 2024.2+ recommended)
 - JDK 17+
@@ -64,6 +46,12 @@ Based on the design in
    ```
 2. Run the app and tap **Start tunnel**. Today that starts the foreground
    service with a placeholder config; wire up a real gateway URL and token next.
+
+While the service runs, it posts an ongoing notification:
+
+<p align="center">
+  <img src=".github/assets/notification.svg" alt="The Mobile-Stdiod foreground-service notification on an Android lock screen: 'Stdio tunnel active — Connected to the gateway.'" width="300">
+</p>
 
 ## Implementing the tunnel
 
