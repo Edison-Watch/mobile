@@ -1,95 +1,25 @@
 # CLAUDE.md
 
-Guidance for AI agents working in this repository.
+Caveman-terse. Android client for SealGate stdio tunnel. Details: README.md.
 
-## Project overview
+## What
+- Device daemon. Outbound WebSocket to backend. Cloud agents reach local MCP servers.
+- No subprocesses. `mcp_frame` -> in-process `LocalMcpModule` (`app/.../mcp/`). Unknown name -> spawn error.
+- Kotlin, JDK 17. Android Views, no Compose. Single module `:app`, ns `ai.sealgate.stdiod`.
 
-**Mobile-Stdiod** is the Android client for the SealGate **stdio tunnel**: a
-device-side daemon that lets cloud agents reach local MCP servers over a single
-**outbound** WebSocket to the SealGate backend. See [`README.md`](README.md)
-for the architecture diagram and background.
+## ❗ Environment (NOT discoverable from code — read this)
+- **No Android SDK in cloud sandbox.** `dl.google.com` blocked. `./gradlew assembleDebug|lintDebug|testDebugUnitTest` FAIL locally. CI (`.github/workflows/android.yml`, job "Build & unit test") = sole build+lint+test gate. Push, watch CI.
+- Verify module logic without SDK -> JVM scratch project. Skill: `add-mobile-module`.
+- lint `MissingPermission` per-call-site. Catch `SecurityException` in SAME function as the BLE/permission call, never a caller.
+- Trifecta/policy classification for these tools lives in `edison-watch` repo, NOT here.
 
-The wire protocol (v2) is shared with the desktop `sealgate-stdiod` daemon.
-The vendored schema lives at `schema/tunnel-protocol.json` (canonical copy:
-`crates/stdiod/schema/` in Edison-Watch/app; also vendored in
-edison-watch/edison-watch under `src/stdio_tunnel/`); the golden fixtures in
-`schema/golden-frames/` are the shared bytes all three implementations
-round-trip in their test suites. When the protocol changes, update the schema
-+ fixtures in lockstep across all three repos.
+## Where
+- Modules: `app/.../mcp/`. Add one: copy a module (e.g. `BatteryModule`), register in `TunnelService.connect()`. Hardware behind `*Source` iface + `Android*.kt` impl -> JVM-testable. Skill: `add-mobile-module`.
+- Protocol: `schema/`. `golden-frames/` = codec fixtures (`GoldenFramesTest`). Change -> update schema+fixtures across 3 repos in lockstep (README).
+- Versions: `gradle/libs.versions.toml` = source of truth. Use `libs.*`. Don't copy numbers here (they rot).
 
-Unlike the desktop daemon there is no subprocess supervision: `mcp_frame`s
-route to in-process `LocalMcpModule` implementations (`app/.../mcp/`), and
-desired-state entries that don't match a built-in module are refused with a
-spawn error.
-
-## Stack
-
-- **Language:** Kotlin (JDK 17 toolchain)
-- **UI:** Android Views + View Binding (no Jetpack Compose)
-- **Build:** Gradle 8.9 (Kotlin DSL) with a version catalog in
-  `gradle/libs.versions.toml`
-- **Android Gradle Plugin:** 8.7.x · **compileSdk/targetSdk:** 35 · **minSdk:** 26
-- Single module: `:app`, namespace `ai.sealgate.stdiod`
-
-## Common commands
-
-```bash
-./gradlew assembleDebug        # build the debug APK
-./gradlew testDebugUnitTest    # JVM unit tests
-./gradlew lint                 # Android lint
-./gradlew installDebug         # install on a connected device/emulator
-```
-
-## Where things live
-
-- `app/src/main/java/ai/sealgate/stdiod/MainActivity.kt` — start/stop control UI.
-- `app/src/main/java/ai/sealgate/stdiod/TunnelService.kt` — foreground service;
-  owns the `TunnelClient` lifecycle and keeps the notification honest.
-- `app/src/main/java/ai/sealgate/stdiod/TunnelConfig.kt` — connection settings.
-- `app/src/main/java/ai/sealgate/stdiod/tunnel/` — wire protocol codec
-  (`TunnelFrame.kt`), WebSocket client + reconnect (`TunnelClient.kt`),
-  persisted device identity (`DeviceIdentityStore.kt`).
-- `app/src/main/java/ai/sealgate/stdiod/mcp/` — in-process MCP modules
-  (`deviceinfo`, `battery`, `wifi`, `bluetooth`, `usb`); add a new hardware module by
-  extending `BaseMcpModule` and registering it in `TunnelService.connect()`.
-  `bluetooth` is a write/control module: besides the read tools
-  (`get_bluetooth_status`, `list_bonded_devices`) it does BLE scan + GATT
-  read/write (`bt_scan`, `bt_gatt_*`), GATT notify/indicate for request/response
-  (`bt_gatt_request_mtu`, `bt_gatt_subscribe`, `bt_gatt_notifications_poll`,
-  `bt_gatt_unsubscribe`, `bt_gatt_write_wait`), classic RFCOMM/SPP (`bt_spp_*`),
-  and pairing (`bt_pair`/`bt_unpair`). The Android impl bridges the async GATT
-  callbacks / blocking RFCOMM IO to the synchronous module with
-  latches/timeouts and holds live connections by address. Notifications land via
-  `onCharacteristicChanged` into a bounded per-characteristic queue (subscribe
-  writes the CCCD `0x2902` descriptor) that poll/write_wait drain; `decode:
-  "length_delimited"` reassembles varint-length-prefixed frames across
-  notifications. Adapter on/off is deliberately excluded (Android forbids it for
-  third-party apps). For a full request/response walkthrough over these tools,
-  see the "Flipper Zero over BLE" worked example in [`README.md`](README.md)
-  (Flipper BLE RPC: activate + write length-delimited protobuf, never send the
-  USB-only `start_rpc_session` string).
-  `usb` is a USB host (USB-OTG) control module (`UsbModule` + `AndroidUsbSource`
-  over `android.hardware.usb.UsbManager`): `usb_list_devices`,
-  `usb_request_permission`, `usb_open`, `usb_bulk_transfer`,
-  `usb_control_transfer`, `usb_close` — raw bulk/control transfers with hex
-  payloads. USB host needs no manifest permission but requires **per-device
-  runtime permission** granted via a system dialog (`usb_request_permission`),
-  which every I/O tool reports in-band when missing; the manifest declares
-  `<uses-feature android:name="android.hardware.usb.host" android:required="false" />`.
-  Needs a USB-OTG adapter.
-  Hardware access goes behind a small source interface (e.g. `BatterySource`)
-  with the Android implementation in its own `Android*` file, so module logic
-  stays JVM-testable with fakes.
-- `app/src/test/` — JVM tests; `GoldenFramesTest` round-trips every fixture
-  in `schema/golden-frames/` and fails on codec drift.
-- `app/src/main/res/` — layouts, strings, theme, adaptive launcher icon.
-- Versions are centralized in `gradle/libs.versions.toml`; add libraries there,
-  reference them as `libs.*` in `app/build.gradle.kts`.
-
-## Conventions
-
-- Keep the app buildable and installable at every step.
-- Prefer the version catalog over hard-coded dependency versions.
-- The tunnel is long-lived: it must run as a foreground service with an ongoing
-  notification, and reconnect with backoff.
-- Do not commit signing material (`*.jks`, `*.keystore`) or `local.properties`.
+## Rules
+- Buildable + installable every step.
+- Tool failure -> in-band `JsonRpc.textToolResult(id, text, isError=true)`. Never crash, never a JSON-RPC error.
+- Tunnel long-lived: foreground service + reconnect backoff.
+- Never commit signing material (`*.jks`, `*.keystore`) or `local.properties`.
