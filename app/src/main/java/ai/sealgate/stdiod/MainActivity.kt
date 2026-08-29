@@ -1,17 +1,23 @@
 package ai.sealgate.stdiod
 
 import android.Manifest
+import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.HapticFeedbackConstants
+import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import ai.sealgate.stdiod.databinding.ActivityMainBinding
 import ai.sealgate.stdiod.tunnel.TunnelState
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.launch
 
 /**
@@ -22,6 +28,7 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private var tunnelState: TunnelState? = null
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -33,18 +40,49 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        ViewCompat.setOnApplyWindowInsetsListener(binding.root) { view, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(0, systemBars.top, 0, systemBars.bottom)
+            insets
+        }
 
         maybeRequestNotificationPermission()
         maybeRequestBluetoothPermission()
 
-        binding.versionText.text =
-            getString(R.string.version_label, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
-
         val stored = TunnelSettings.load(this)
         binding.gatewayUrlInput.setText(stored.gatewayUrl)
         binding.apiKeyInput.setText(stored.authToken)
+        binding.settingsPanel.visibility = if (stored.isValid()) View.GONE else View.VISIBLE
 
-        binding.startButton.setOnClickListener {
+        binding.settingsButton.setOnClickListener {
+            val showing = binding.settingsPanel.visibility == View.VISIBLE
+            binding.settingsPanel.visibility = if (showing) View.GONE else View.VISIBLE
+            binding.settingsButton.contentDescription = getString(
+                if (showing) R.string.action_show_settings else R.string.action_hide_settings,
+            )
+        }
+
+        binding.connectionInfoButton.setOnClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.connection_info_title)
+                .setMessage(
+                    getString(R.string.connection_info_message) + "\n\n" +
+                        getString(
+                            R.string.connection_info_version,
+                            BuildConfig.VERSION_NAME,
+                            BuildConfig.VERSION_CODE,
+                        ),
+                )
+                .setPositiveButton(R.string.action_close, null)
+                .show()
+        }
+
+        binding.tunnelButton.setOnClickListener {
+            binding.tunnelButton.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            if (tunnelState != null) {
+                TunnelService.stop(this)
+                return@setOnClickListener
+            }
             val config = TunnelConfig(
                 gatewayUrl = binding.gatewayUrlInput.text?.toString()?.trim().orEmpty(),
                 authToken = binding.apiKeyInput.text?.toString()?.trim().orEmpty(),
@@ -58,14 +96,12 @@ class MainActivity : AppCompatActivity() {
                 if (config.authToken.isBlank()) {
                     binding.apiKeyLayout.error = getString(R.string.error_api_key)
                 }
+                binding.settingsPanel.visibility = View.VISIBLE
                 return@setOnClickListener
             }
             TunnelSettings.save(this, config)
+            binding.settingsPanel.visibility = View.GONE
             TunnelService.start(this, config)
-        }
-
-        binding.stopButton.setOnClickListener {
-            TunnelService.stop(this)
         }
 
         // The service owns the tunnel, so the status line mirrors its published
@@ -74,20 +110,49 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 TunnelServiceState.state.collect { state ->
+                    tunnelState = state
                     val text = when (state) {
                         TunnelState.Connected -> getString(R.string.tunnel_state_connected)
                         TunnelState.Connecting -> getString(R.string.tunnel_state_connecting)
                         TunnelState.Disconnected -> getString(R.string.tunnel_state_disconnected)
                         null -> getString(R.string.status_stopped)
                     }
-                    setStatus(text)
+                    renderState(state, text)
                 }
             }
         }
     }
 
-    private fun setStatus(text: String) {
-        binding.statusText.text = getString(R.string.status_prefix, text)
+    private fun renderState(state: TunnelState?, text: String) {
+        val stateColor = ContextCompat.getColor(
+            this,
+            when (state) {
+                TunnelState.Connected -> R.color.circuit_green
+                TunnelState.Connecting -> R.color.signal_amber
+                TunnelState.Disconnected, null -> R.color.infra_red
+            },
+        )
+        binding.statusText.text = text
+        binding.statusText.setTextColor(stateColor)
+        binding.statusIndicator.backgroundTintList = ColorStateList.valueOf(stateColor)
+        binding.tunnelVisual.setState(state)
+        binding.tunnelButton.text = getString(
+            if (state == null) R.string.action_connect else R.string.action_stop,
+        )
+        binding.tunnelButton.setBackgroundColor(
+            ContextCompat.getColor(
+                this,
+                if (state == null) R.color.core_cyan else R.color.infra_red,
+            ),
+        )
+        binding.tunnelVisual.contentDescription = getString(
+            when (state) {
+                TunnelState.Connected -> R.string.tunnel_visual_connected
+                TunnelState.Connecting -> R.string.tunnel_visual_connecting
+                TunnelState.Disconnected -> R.string.tunnel_visual_reconnecting
+                null -> R.string.tunnel_visual_stopped
+            },
+        )
     }
 
     private fun maybeRequestNotificationPermission() {

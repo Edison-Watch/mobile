@@ -1,24 +1,39 @@
 <resources>
-    <string name="app_name">Mobile-Stdiod</string>
+    <string name="app_name">Mobile Tunnel</string>
 
-    <string name="action_start">Start tunnel</string>
+    <string name="action_connect">Connect</string>
     <string name="action_stop">Stop tunnel</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_show_settings">Show connection settings</string>
+    <string name="action_hide_settings">Hide connection settings</string>
+    <string name="action_connection_info">Connection information</string>
+    <string name="connection_info_title">How the connection works</string>
+    <string name="connection_info_message">Your phone creates an encrypted connection to the SealGate gateway. Nothing on the internet can connect directly to your phone.\n\nTechnical details\nThe app uses one outbound secure WebSocket (WSS) and does not open an inbound port.</string>
+    <string name="connection_info_version">Version %1$s · build %2$d</string>
+    <string name="action_close">Close</string>
 
-    <string name="status_prefix">Tunnel: %1$s</string>
-    <string name="status_stopped">stopped</string>
+    <string name="status_stopped">Ready to connect</string>
+    <string name="local_tools_label">Local tools</string>
+    <string name="local_tools_accessibility">Local tools: Device information, Battery, Wi-Fi, Bluetooth, and USB</string>
+    <string name="connection_settings_label">Connection setup</string>
 
-    <string name="version_label">v%1$s (build %2$d)</string>
+    <string name="version_label">v%1$s  ·  %2$d</string>
 
-    <string name="hint_gateway_url">Gateway WebSocket URL</string>
+    <string name="hint_gateway_url">Gateway URL</string>
     <string name="hint_api_key">SealGate API key</string>
-    <string name="error_gateway_url">Must start with wss:// (or ws:// for local dev)</string>
+    <string name="error_gateway_url">Use a wss:// URL (ws:// is allowed for local development)</string>
     <string name="error_api_key">Paste your API key from the dashboard</string>
 
-    <string name="tunnel_channel_name">Stdio tunnel</string>
-    <string name="tunnel_channel_description">Ongoing status of the stdio tunnel connection.</string>
-    <string name="tunnel_notification_title">Stdio tunnel active</string>
-    <string name="tunnel_notification_text">Connected to the gateway.</string>
-    <string name="tunnel_state_connected">Connected to the gateway.</string>
-    <string name="tunnel_state_connecting">Connecting to the gateway…</string>
-    <string name="tunnel_state_disconnected">Disconnected. Reconnecting with backoff.</string>
+    <string name="tunnel_visual_stopped">Diagram: this phone is ready to connect securely to the SealGate gateway.</string>
+    <string name="tunnel_visual_connecting">Diagram: this phone is creating a secure connection to the SealGate gateway.</string>
+    <string name="tunnel_visual_connected">Diagram: this phone has a secure connection to the SealGate gateway.</string>
+    <string name="tunnel_visual_reconnecting">Diagram: the secure connection between this phone and the SealGate gateway was interrupted and is reconnecting automatically.</string>
+
+    <string name="tunnel_channel_name">Mobile Tunnel</string>
+    <string name="tunnel_channel_description">Ongoing status of the Mobile Tunnel secure bridge.</string>
+    <string name="notification_route">Phone  →  SealGate</string>
+    <string name="notification_diagram_description">Diagram showing a secure connection between this phone and the SealGate gateway.</string>
+    <string name="tunnel_state_connected">Connected</string>
+    <string name="tunnel_state_connecting">Opening tunnel</string>
+    <string name="tunnel_state_disconnected">Reconnecting</string>
 </resources>

@@ -1,6 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.MobileStdiod" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:statusBarColor">?attr/colorPrimary</item>
+    <style name="Theme.MobileTunnel" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/core_cyan</item>
+        <item name="colorOnPrimary">@color/baseline_black</item>
+        <item name="colorSecondary">@color/circuit_green</item>
+        <item name="colorSurface">@color/baseline_black</item>
+        <item name="colorSurfaceVariant">@color/surface_dark</item>
+        <item name="colorOnSurface">@color/wavelength_white</item>
+        <item name="colorOnSurfaceVariant">@color/graphene_grey</item>
+        <item name="colorOutline">@color/outline_dark</item>
+        <item name="colorError">@color/infra_red</item>
+        <item name="android:windowBackground">@color/baseline_black</item>
+        <item name="android:statusBarColor">@color/baseline_black</item>
+        <item name="android:navigationBarColor">@color/baseline_black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:colorAccent">@color/core_cyan</item>
+    </style>
+
+    <style name="Widget.MobileTunnel.TextInputLayout" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="boxBackgroundColor">@color/surface_dark</item>
+        <item name="boxStrokeColor">@color/core_cyan</item>
+        <item name="boxCornerRadiusTopStart">4dp</item>
+        <item name="boxCornerRadiusTopEnd">4dp</item>
+        <item name="boxCornerRadiusBottomStart">4dp</item>
+        <item name="boxCornerRadiusBottomEnd">4dp</item>
+        <item name="hintTextColor">@color/graphene_grey</item>
+        <item name="endIconTint">@color/core_cyan</item>
     </style>
 </resources>

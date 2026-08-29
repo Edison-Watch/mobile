@@ -1,4 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="baseline_black">#000000</color>
+    <color name="core_cyan">#C3FFFD</color>
+    <color name="cyan_pressed">#4DC3FFFD</color>
+    <color name="graphene_grey">#9BA4A6</color>
+    <color name="wavelength_white">#F9F9F9</color>
+    <color name="circuit_green">#00C781</color>
+    <color name="signal_amber">#F5B942</color>
+    <color name="infra_red">#FF3B4D</color>
+    <color name="surface_dark">#090D0D</color>
+    <color name="outline_dark">#364141</color>
+    <color name="grid_dark">#182121</color>
     <color name="ic_launcher_background">#0B7285</color>
 </resources>

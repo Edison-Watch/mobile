@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Production source adapted directly from the SealGate SVG supplied by the user. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="391" height="391" viewBox="0 0 391 391" fill="none">
+  <rect width="391" height="391" rx="9.78" fill="#000000"/>
+  <g transform="translate(27.37 27.37) scale(0.86)" fill="#C3FFFD">
+    <path fill-rule="evenodd" d="M9.775 0H381.23A9.775 9.775 0 0 1 391 9.78V381.23A9.775 9.775 0 0 1 381.23 391H9.775A9.775 9.775 0 0 1 0 381.23V9.775A9.775 9.775 0 0 1 9.78 0ZM124.78 41.54A9.775 9.775 0 0 1 115.01 51.31H28.08A9.775 9.775 0 0 0 18.3 61.09V361.68A9.775 9.775 0 0 0 28.08 371.45H362.93A9.775 9.775 0 0 0 372.7 361.68V29.33A9.775 9.775 0 0 0 362.93 19.55H134.56A9.775 9.775 0 0 0 124.78 29.33Z"/>
+    <g>
+      <rect x="184.44" y="53.1" width="99.51" height="22.12" rx="5.8"/>
+      <rect x="306.07" y="53.1" width="22.12" height="22.12" rx="5.8"/>
+      <rect x="151.27" y="75.22" width="44.23" height="22.12" rx="5.8"/>
+      <rect x="261.85" y="75.22" width="55.29" height="22.12" rx="5.8"/>
+      <rect x="140.21" y="97.33" width="33.17" height="22.12" rx="5.8"/>
+      <rect x="272.91" y="97.33" width="33.17" height="22.12" rx="5.8"/>
+      <rect x="129.16" y="119.45" width="44.22" height="22.12" rx="5.8"/>
+      <rect x="272.91" y="119.45" width="22.12" height="22.12" rx="5.8"/>
+      <rect x="118.09" y="141.56" width="66.35" height="22.12" rx="5.8"/>
+      <rect x="129.16" y="163.68" width="110.58" height="22.12" rx="5.8"/>
+      <rect x="151.27" y="185.79" width="121.62" height="22.12" rx="5.8"/>
+      <rect x="195.5" y="207.91" width="99.51" height="22.12" rx="5.8"/>
+      <rect x="84.93" y="230.02" width="33.17" height="22.12" rx="5.8"/>
+      <rect x="239.73" y="230.02" width="55.29" height="22.12" rx="5.8"/>
+      <rect x="84.93" y="252.14" width="33.17" height="22.12" rx="5.8"/>
+      <rect x="239.73" y="252.14" width="44.23" height="22.12" rx="5.8"/>
+      <rect x="73.87" y="274.25" width="44.22" height="22.12" rx="5.8"/>
+      <rect x="239.73" y="274.25" width="33.17" height="22.12" rx="5.8"/>
+      <rect x="73.87" y="296.37" width="55.29" height="22.12" rx="5.8"/>
+      <rect x="217.62" y="296.37" width="44.23" height="22.12" rx="5.8"/>
+      <rect x="62.81" y="318.48" width="33.17" height="22.12" rx="5.8"/>
+      <rect x="118.09" y="318.48" width="110.59" height="22.12" rx="5.8"/>
+      <rect x="338.58" y="274.25" width="22.12" height="22.12" rx="5.8"/>
+      <rect x="338.58" y="296.37" width="22.12" height="22.12" rx="5.8"/>
+      <rect x="305.41" y="318.48" width="55.29" height="22.12" rx="5.8"/>
+    </g>
+    <g>
+      <rect x="62.81" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="73.87" y="274.25" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="84.93" y="230.02" width="11.06" height="110.58" rx="5.53"/>
+      <rect x="95.97" y="230.02" width="11.06" height="88.46" rx="5.53"/>
+      <rect x="107.03" y="230.02" width="11.06" height="88.46" rx="5.53"/>
+      <rect x="118.09" y="141.56" width="11.07" height="22.12" rx="5.53"/>
+      <rect x="118.09" y="296.37" width="11.07" height="44.23" rx="5.53"/>
+      <rect x="129.16" y="119.45" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="129.16" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="140.21" y="97.33" width="11.06" height="88.46" rx="5.53"/>
+      <rect x="140.21" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="151.27" y="75.22" width="11.06" height="132.69" rx="5.53"/>
+      <rect x="151.27" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="162.33" y="75.22" width="11.06" height="132.69" rx="5.53"/>
+      <rect x="162.33" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="173.39" y="75.22" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="173.39" y="141.56" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="173.39" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="184.44" y="53.1" width="11.06" height="44.23" rx="5.53"/>
+      <rect x="184.44" y="163.68" width="11.06" height="44.23" rx="5.53"/>
+      <rect x="184.44" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="195.5" y="53.1" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="195.5" y="163.68" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="195.5" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="206.56" y="53.1" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="206.56" y="163.68" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="206.56" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="217.62" y="53.1" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="217.62" y="163.68" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="217.62" y="296.37" width="11.06" height="44.23" rx="5.53"/>
+      <rect x="228.68" y="53.1" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="228.68" y="163.68" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="228.68" y="296.37" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="239.73" y="53.1" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="239.73" y="185.79" width="11.06" height="132.69" rx="5.53"/>
+      <rect x="250.79" y="53.1" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="250.79" y="185.79" width="11.06" height="132.69" rx="5.53"/>
+      <rect x="261.85" y="53.1" width="11.06" height="44.23" rx="5.53"/>
+      <rect x="261.85" y="185.79" width="11.06" height="110.58" rx="5.53"/>
+      <rect x="272.91" y="53.1" width="11.06" height="88.46" rx="5.53"/>
+      <rect x="272.91" y="207.91" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="283.95" y="75.22" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="283.95" y="207.91" width="11.06" height="44.23" rx="5.53"/>
+      <rect x="295.01" y="75.22" width="11.06" height="44.23" rx="5.53"/>
+      <rect x="306.07" y="53.1" width="11.06" height="44.23" rx="5.53"/>
+      <rect x="317.13" y="53.1" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="305.41" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="316.46" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="327.52" y="318.48" width="11.06" height="22.12" rx="5.53"/>
+      <rect x="338.58" y="274.25" width="11.06" height="66.35" rx="5.53"/>
+      <rect x="349.64" y="274.25" width="11.06" height="66.35" rx="5.53"/>
+    </g>
+  </g>
+</svg>

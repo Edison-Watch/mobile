@@ -6,9 +6,13 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import ai.sealgate.stdiod.mcp.AndroidBatterySource
@@ -24,7 +28,10 @@ import ai.sealgate.stdiod.mcp.WifiModule
 import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
 import ai.sealgate.stdiod.tunnel.TunnelClient
 import ai.sealgate.stdiod.tunnel.TunnelState
+import ai.sealgate.stdiod.ui.NotificationTunnelArtwork
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -43,12 +50,16 @@ import kotlinx.coroutines.launch
 class TunnelService : LifecycleService() {
 
     private var tunnelJob: Job? = null
+    private var notificationAnimationJob: Job? = null
     private var tunnelClient: TunnelClient? = null
+    private val sealGateLogo by lazy {
+        BitmapFactory.decodeResource(resources, R.drawable.sealgate_logo)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
 
-        startForeground(NOTIFICATION_ID, buildNotification())
+        startForeground(NOTIFICATION_ID, buildNotification(TunnelState.Connecting))
 
         val config = intent?.let {
             TunnelConfig(
@@ -73,6 +84,7 @@ class TunnelService : LifecycleService() {
     private fun connect(config: TunnelConfig) {
         tunnelClient?.stop()
         tunnelJob?.cancel()
+        notificationAnimationJob?.cancel()
 
         Log.i(TAG, "Tunnel starting -> ${config.gatewayUrl}")
         val identity = DeviceIdentityStore.load(this, BuildConfig.VERSION_NAME)
@@ -97,15 +109,34 @@ class TunnelService : LifecycleService() {
         tunnelJob = lifecycleScope.launch {
             client.state.collect { state ->
                 TunnelServiceState.publish(state)
-                val text = when (state) {
-                    TunnelState.Connected -> getString(R.string.tunnel_state_connected)
-                    TunnelState.Connecting -> getString(R.string.tunnel_state_connecting)
-                    TunnelState.Disconnected -> getString(R.string.tunnel_state_disconnected)
-                }
                 val manager =
                     getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                manager.notify(NOTIFICATION_ID, buildNotification(text))
+                notificationAnimationJob?.cancel()
+                manager.notify(NOTIFICATION_ID, buildNotification(state, frame = 0))
+                if (state != TunnelState.Disconnected && systemAnimationsEnabled()) {
+                    notificationAnimationJob = animateNotification(state, manager)
+                }
             }
+        }
+    }
+
+    private fun animateNotification(
+        state: TunnelState,
+        manager: NotificationManager,
+    ): Job = lifecycleScope.launch {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        var frame = 1
+        while (isActive) {
+            delay(
+                if (powerManager.isInteractive) {
+                    NOTIFICATION_FRAME_INTERVAL_MILLIS
+                } else {
+                    NOTIFICATION_SCREEN_OFF_INTERVAL_MILLIS
+                },
+            )
+            if (!powerManager.isInteractive) continue
+            manager.notify(NOTIFICATION_ID, buildNotification(state, frame))
+            frame = (frame + 1) % NotificationTunnelArtwork.FRAME_COUNT
         }
     }
 
@@ -114,45 +145,110 @@ class TunnelService : LifecycleService() {
         tunnelClient = null
         tunnelJob?.cancel()
         tunnelJob = null
+        notificationAnimationJob?.cancel()
+        notificationAnimationJob = null
         // No service means no tunnel: null (not Disconnected, which implies a
         // pending reconnect) so observers show "stopped".
         TunnelServiceState.publish(null)
         super.onDestroy()
     }
 
-    private fun buildNotification(text: String = getString(R.string.tunnel_notification_text)): Notification {
+    private fun buildNotification(state: TunnelState, frame: Int = 0): Notification {
         ensureChannel()
+        val presentation = notificationPresentation(state)
+        val status = getString(presentation.status)
+        val statusColor = ContextCompat.getColor(this, presentation.color)
+        val route = getString(R.string.notification_route)
+        val diagram = NotificationTunnelArtwork.render(this, state, frame)
         val openApp = PendingIntent.getActivity(
             this,
             0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
         )
+
+        val pictureStyle = NotificationCompat.BigPictureStyle()
+            .bigPicture(diagram)
+            .bigLargeIcon(null as android.graphics.Bitmap?)
+            .setBigContentTitle(status)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            pictureStyle.setContentDescription(
+                getString(R.string.notification_diagram_description),
+            )
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.tunnel_notification_title))
-            .setContentText(text)
+            // A native template uses the full width Android makes available to
+            // notifications and stays far denser than a decorated RemoteViews panel.
+            .setContentTitle(status)
+            .setContentText(route)
             .setSmallIcon(R.drawable.ic_stat_sealgate)
+            .setLargeIcon(sealGateLogo)
+            .setStyle(pictureStyle)
+            .setColor(statusColor)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setOnlyAlertOnce(true)
             .setOngoing(true)
+            .setShowWhen(false)
             .setContentIntent(openApp)
             .build()
     }
 
+    private fun notificationPresentation(state: TunnelState): NotificationPresentation =
+        when (state) {
+            TunnelState.Connected -> NotificationPresentation(
+                status = R.string.tunnel_state_connected,
+                color = R.color.circuit_green,
+            )
+            TunnelState.Connecting -> NotificationPresentation(
+                status = R.string.tunnel_state_connecting,
+                color = R.color.signal_amber,
+            )
+            TunnelState.Disconnected -> NotificationPresentation(
+                status = R.string.tunnel_state_disconnected,
+                color = R.color.infra_red,
+            )
+        }
+
+    private fun systemAnimationsEnabled(): Boolean =
+        Settings.Global.getFloat(
+            contentResolver,
+            Settings.Global.ANIMATOR_DURATION_SCALE,
+            1f,
+        ) != 0f
+
     private fun ensureChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+        manager.deleteNotificationChannel(LEGACY_CHANNEL_ID)
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.tunnel_channel_name),
-            NotificationManager.IMPORTANCE_LOW,
-        ).apply { description = getString(R.string.tunnel_channel_description) }
+            NotificationManager.IMPORTANCE_DEFAULT,
+        ).apply {
+            description = getString(R.string.tunnel_channel_description)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+        }
         manager.createNotificationChannel(channel)
     }
 
+    private data class NotificationPresentation(
+        val status: Int,
+        val color: Int,
+    )
+
     companion object {
         private const val TAG = "TunnelService"
-        private const val CHANNEL_ID = "stdio_tunnel"
+        private const val CHANNEL_ID = "mobile_tunnel_live"
+        private const val LEGACY_CHANNEL_ID = "studio_d_live_tunnel"
         private const val NOTIFICATION_ID = 1
+        private const val NOTIFICATION_FRAME_INTERVAL_MILLIS = 500L
+        private const val NOTIFICATION_SCREEN_OFF_INTERVAL_MILLIS = 10_000L
 
         /** Start the tunnel with the given config. */
         fun start(context: Context, config: TunnelConfig) {
