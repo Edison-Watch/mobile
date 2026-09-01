@@ -21,8 +21,11 @@ import ai.sealgate.stdiod.mcp.AndroidDeviceInfo
 import ai.sealgate.stdiod.mcp.AndroidUsbSource
 import ai.sealgate.stdiod.mcp.AndroidWifiSource
 import ai.sealgate.stdiod.mcp.BatteryModule
+import ai.sealgate.stdiod.mcp.BashModule
 import ai.sealgate.stdiod.mcp.BluetoothModule
 import ai.sealgate.stdiod.mcp.DeviceInfoModule
+import ai.sealgate.stdiod.mcp.MobileCommandRouter
+import ai.sealgate.stdiod.mcp.QuickJsMobileBashRuntime
 import ai.sealgate.stdiod.mcp.UsbModule
 import ai.sealgate.stdiod.mcp.WifiModule
 import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
@@ -41,11 +44,8 @@ import kotlinx.coroutines.launch
  * to the gateway. Android will kill background work aggressively, so the tunnel
  * runs as a foreground service with an ongoing notification.
  *
- * This is a template stub: [connect] is where the real work goes - open the
- * WebSocket to [TunnelConfig.gatewayUrl], spawn/attach the local stdio MCP
- * process, and pump bytes between the socket and the process's stdin/stdout,
- * translating stdio framing to the gateway's HTTP/SSE transport. Reconnect with
- * backoff on drop.
+ * [connect] exposes one restricted Mobile Bash MCP server backed by in-process
+ * Android capability modules. Android never spawns a local stdio process.
  */
 class TunnelService : LifecycleService() {
 
@@ -88,17 +88,34 @@ class TunnelService : LifecycleService() {
 
         Log.i(TAG, "Tunnel starting -> ${config.gatewayUrl}")
         val identity = DeviceIdentityStore.load(this, BuildConfig.VERSION_NAME)
+        val capabilityModules = listOf(
+            DeviceInfoModule(AndroidDeviceInfo),
+            BatteryModule(AndroidBatterySource(this)),
+            WifiModule(AndroidWifiSource(this)),
+            BluetoothModule(AndroidBluetoothSource(this)),
+            UsbModule(AndroidUsbSource(this)),
+        )
+        val router = MobileCommandRouter(capabilityModules)
+        val exposedModules = listOf(
+            BashModule(
+                runtimeFactory = {
+                    QuickJsMobileBashRuntime(
+                        sourceProvider = {
+                            assets.open(BASH_RUNTIME_ASSET).bufferedReader().use { it.readText() }
+                        },
+                        commandRouter = router,
+                    )
+                },
+                closeCapabilities = {
+                    capabilityModules.filterIsInstance<AutoCloseable>().forEach(AutoCloseable::close)
+                },
+            ),
+        )
         val client = TunnelClient(
             gatewayUrl = config.gatewayUrl,
             authToken = config.authToken,
             identity = identity,
-            modules = listOf(
-                DeviceInfoModule(AndroidDeviceInfo),
-                BatteryModule(AndroidBatterySource(this)),
-                WifiModule(AndroidWifiSource(this)),
-                BluetoothModule(AndroidBluetoothSource(this)),
-                UsbModule(AndroidUsbSource(this)),
-            ),
+            modules = exposedModules,
             scope = lifecycleScope,
         )
         tunnelClient = client
@@ -249,6 +266,7 @@ class TunnelService : LifecycleService() {
         private const val NOTIFICATION_ID = 1
         private const val NOTIFICATION_FRAME_INTERVAL_MILLIS = 500L
         private const val NOTIFICATION_SCREEN_OFF_INTERVAL_MILLIS = 10_000L
+        private const val BASH_RUNTIME_ASSET = "mobile-bash-runtime.js"
 
         /** Start the tunnel with the given config. */
         fun start(context: Context, config: TunnelConfig) {

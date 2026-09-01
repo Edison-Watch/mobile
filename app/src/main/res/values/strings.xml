@@ -33,7 +33,7 @@
     <string name="tunnel_channel_description">Ongoing status of the Mobile Tunnel secure bridge.</string>
     <string name="notification_route">Phone  →  SealGate</string>
     <string name="notification_diagram_description">Diagram showing a secure connection between this phone and the SealGate gateway.</string>
-    <string name="tunnel_state_connected">Connected</string>
+    <string name="tunnel_state_connected">Connected · Mobile Bash</string>
     <string name="tunnel_state_connecting">Opening tunnel</string>
     <string name="tunnel_state_disconnected">Reconnecting</string>
 </resources>

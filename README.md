@@ -18,16 +18,38 @@ daemon (protocol v2; see `schema/tunnel-protocol.json`). Where the desktop
 daemon spawns `npx`/`uvx` subprocesses, this app answers MCP requests from
 **in-process Kotlin modules** — a phone can't spawn stdio servers.
 
-| Module | Tools | What it does |
-|--------|------:|--------------|
-| `deviceinfo` | 1 | Device model, OS build, and identifiers. |
-| `battery` | 1 | Charge level and charging state. |
-| `wifi` | 1 | Wi-Fi connection status. |
-| `bluetooth` | 19 | BLE + classic Bluetooth: status, scan, GATT read/write, notify/indicate, RFCOMM/SPP, and pairing. |
-| `usb` | 6 | USB-OTG host access: enumerate devices, request permission, and raw bulk/control transfers. |
+### Mobile Bash
 
-Each module's tool set is defined in its `mcp/*Module.kt` and surfaced to the
-agent via `tools/list`.
+The app exposes one built-in MCP server whose SealGate prefix is `mobilebash`.
+Its single `run` tool executes the required `script` argument
+inside a restricted [just-bash](https://github.com/vercel-labs/just-bash)
+environment:
+
+```bash
+battery status | jq '.level_percent'
+bluetooth scan --timeout-ms 5000 > /tmp/scan.json
+jq '.devices[] | select(.rssi > -70)' /tmp/scan.json
+```
+
+Run `device --help`, `battery --help`, `wifi --help`, `bluetooth --help`, or
+`usb --help` to discover the Android CLI. It delegates to the same Kotlin
+capability modules, including Bluetooth and USB control operations, so Android runtime
+permissions and on-device permission dialogs still apply.
+
+| Command | What it does |
+|---------|--------------|
+| `device` | Device model, OS build, and identifiers. |
+| `battery` | Charge level and charging state. |
+| `wifi` | Wi-Fi connection status. |
+| `bluetooth` | BLE + classic Bluetooth: status, scan, GATT read/write, notify/indicate, RFCOMM/SPP, and pairing. |
+| `usb` | USB-OTG host access: enumerate devices, request permission, and raw bulk/control transfers. |
+
+The virtual filesystem is shared across calls for one tunnel run and destroyed
+when that run stops. Shell-local variables, functions, aliases, and working
+directory reset after each call. Mobile Bash has no Android
+filesystem, real process, general network, Python, JavaScript, or SQLite access. It enforces a
+60-second call deadline, a 64 KiB script limit, 1 MiB output limit, 8 MiB
+per-file limit, and 32 MiB total virtual filesystem limit.
 
 ## Architecture
 
@@ -62,6 +84,13 @@ agent via `tools/list`.
    (from the dashboard), and tap **Start tunnel**. Settings persist across
    restarts; the ongoing notification shows the live connection state.
 
+   While the tunnel is running, pull down from the top of the app screen to
+   close the current socket and reconnect immediately with the saved settings.
+
+   In the SealGate dashboard, add one local server for the device with display
+   name **Mobile Bash**, MCP prefix `mobilebash`, and command `mobile-builtin`.
+   No arguments are required. The resulting agent tool is `mobilebash_run`.
+
 While the service runs, it posts an ongoing notification:
 
 <p align="center">
@@ -70,15 +99,20 @@ While the service runs, it posts an ongoing notification:
 
 ## Adding a hardware module
 
-Each "stdio server" on mobile is an in-process Kotlin module. To add one:
+Android capabilities are in-process Kotlin modules behind the Mobile Bash CLI.
+To add one:
 
 1. Extend `BaseMcpModule` (see `mcp/DeviceInfoModule.kt`) — supply the tool
    descriptors and the `tools/call` handler; the MCP lifecycle
    (`initialize`, `ping`, `tools/list`) is handled for you.
-2. Register it in the `modules` list in `TunnelService.connect`.
-3. Enable a server with that module's name for the device in the SealGate
-   dashboard; the tunnel binds it by name and acks the spawn.
+2. Register it in the capability list in `TunnelService.connect`.
+3. Map its commands in `MobileCommandRouter` and add CLI-focused tests. Do not
+   register another dashboard server or expose the module as a separate MCP
+   surface.
 
 ## License
 
 See [LICENSE](LICENSE).
+
+The embedded just-bash runtime and QuickJS bridge are Apache-2.0 dependencies;
+see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

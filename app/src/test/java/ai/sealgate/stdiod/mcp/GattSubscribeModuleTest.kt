@@ -273,12 +273,27 @@ class GattSubscribeModuleTest {
     }
 
     @Test
+    fun writeWaitRequireReplyTurnsTimeoutIntoError() {
+        val result = call(
+            FakeSubscribe(writeWaitEvents = emptyList()),
+            "bt_gatt_write_wait",
+            """{"address":"$addr","tx_service":"180f","tx_characteristic":"2a1a",
+                "value_hex":"aa","rx_service":"180f","rx_characteristic":"2a19","require_reply":true}""",
+        )
+        assertTrue(isError(result))
+        assertTrue(textOf(result).contains("timed out waiting for a GATT reply"))
+    }
+
+    @Test
     fun requestMtuClampsAboveRangeAndReturnsNegotiated() {
         val fake = FakeSubscribe()
         val result = call(fake, "bt_gatt_request_mtu", """{"address":"$addr","mtu":99999}""")
         assertFalse(isError(result))
         assertEquals(517, fake.lastMtuRequested)
-        assertEquals(517, Json.parseToJsonElement(textOf(result)).jsonObject["mtu"]?.jsonPrimitive?.content?.toInt())
+        val payload = Json.parseToJsonElement(textOf(result)).jsonObject
+        assertEquals(517, payload["requested_mtu"]?.jsonPrimitive?.content?.toInt())
+        assertEquals(517, payload["negotiated_mtu"]?.jsonPrimitive?.content?.toInt())
+        assertEquals(517, payload["mtu"]?.jsonPrimitive?.content?.toInt())
     }
 
     @Test

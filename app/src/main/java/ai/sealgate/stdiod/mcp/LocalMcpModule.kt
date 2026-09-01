@@ -91,6 +91,9 @@ abstract class BaseMcpModule : LocalMcpModule {
     /** `tools` array for `tools/list`. */
     protected abstract fun toolDescriptors(): JsonElement
 
+    /** Tool catalog reused by Mobile Bash so CLI flags stay in lockstep with MCP schemas. */
+    internal fun bridgeToolDescriptors(): JsonElement = toolDescriptors()
+
     /** Handle `tools/call` for [toolName]; return the full JSON-RPC response. */
     protected abstract fun callTool(id: JsonElement, toolName: String, arguments: JsonObject): JsonObject
 

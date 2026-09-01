@@ -31,10 +31,12 @@ object TunnelSettings {
             .edit()
             .putString(KEY_GATEWAY_URL, config.gatewayUrl)
             .putString(KEY_AUTH_TOKEN, config.authToken)
+            .remove(LEGACY_KEY_BASH_MODE)
             .apply()
     }
 
     private const val PREFS = "tunnel_settings"
     private const val KEY_GATEWAY_URL = "gateway_url"
     private const val KEY_AUTH_TOKEN = "auth_token"
+    private const val LEGACY_KEY_BASH_MODE = "bash_mode"
 }

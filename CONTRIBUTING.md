@@ -22,6 +22,16 @@
 
 ## Development workflow
 
+The generated Bash runtime asset is checked in so normal Android builds need
+neither Node nor network access. After changing `tools/bash-runtime/`, regenerate
+it with:
+
+```bash
+cd tools/bash-runtime
+npm ci
+npm run build
+```
+
 1. Create a branch for your feature/fix.
 2. Make your changes; keep the app buildable and installable.
 3. Before opening a PR, make sure these pass locally:

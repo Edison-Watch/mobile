@@ -1,11 +1,15 @@
 package ai.sealgate.stdiod.mcp
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /** One paired device, as `list_bonded_devices` reports it. */
 data class BondedDevice(
@@ -25,6 +29,10 @@ data class ScannedDevice(
     val type: String,
     /** Signal strength in dBm. */
     val rssi: Int,
+    /** Service UUIDs included in the advertisement. */
+    val serviceUuids: List<String> = emptyList(),
+    /** Manufacturer-specific advertisement fields, keyed by Bluetooth company id. */
+    val manufacturerData: Map<Int, ByteArray> = emptyMap(),
 )
 
 /** A GATT characteristic and the operations it advertises. */
@@ -158,7 +166,9 @@ interface BluetoothSource {
  * Android implementation, never in the module. Live GATT/RFCOMM connections are
  * held by address inside the source across tool calls.
  */
-interface BluetoothControlSource : BluetoothSource {
+interface BluetoothControlSource : BluetoothSource, AutoCloseable {
+    /** Release every live GATT/SPP connection when the tunnel run ends. */
+    override fun close() = Unit
     /** Whether the app holds `BLUETOOTH_SCAN` (always true before API 31). */
     val hasScanPermission: Boolean
 
@@ -279,9 +289,18 @@ interface BluetoothControlSource : BluetoothSource {
  * JSON shaping and error mapping (all JVM-testable), while the source owns the
  * async->sync bridging.
  */
-class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModule() {
+class BluetoothModule(
+    private val source: BluetoothControlSource,
+    private val sleep: (Long) -> Unit = Thread::sleep,
+    private val monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+) : BaseMcpModule(), AutoCloseable {
+
+    /** Ephemeral convenience defaults. They live only as long as this tunnel-run module instance. */
+    @Volatile private var gattDefaults: GattDefaults? = null
 
     override val name: String = NAME
+
+    override fun close() = source.close()
 
     override fun toolDescriptors(): JsonElement = buildJsonArray {
         add(descriptor("get_bluetooth_status", "Report whether this Android device has a bluetooth adapter and whether it is enabled."))
@@ -289,7 +308,7 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         add(
             descriptor(
                 "bt_scan",
-                "Scan for nearby Bluetooth Low Energy (BLE) peripherals. Returns discovered devices with address, name, type and RSSI. Requires the \"Nearby devices\" scan permission.",
+                "Scan for nearby Bluetooth Low Energy (BLE) peripherals. Returns address, name, type, RSSI, advertised service UUIDs and manufacturer data. Requires the \"Nearby devices\" scan permission.",
             ) {
                 intProp("timeout_ms", "How long to scan, in ms (default 8000, capped at 30000).")
             },
@@ -321,20 +340,40 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         )
         add(
             descriptor("bt_gatt_read", "Read a GATT characteristic's value from a connected peripheral. Returns the value as a lowercase hex string.") {
-                stringProp("address", "Device hardware address of a connected peripheral.", required = true)
-                stringProp("service", "Service UUID.", required = true)
-                stringProp("characteristic", "Characteristic UUID.", required = true)
+                stringProp("address", "Device hardware address. Defaults to the most recently connected GATT device in this tunnel run.")
+                stringProp("service", "Service UUID (16-bit aliases such as fa are accepted). Defaults to the last-used service.")
+                stringProp("characteristic", "Characteristic UUID (16-bit aliases such as fa02 are accepted). Defaults to the last-used characteristic.")
                 intProp("timeout_ms", "How long to wait for the read, in ms.")
             },
         )
         add(
             descriptor("bt_gatt_write", "Write bytes to a GATT characteristic on a connected peripheral.") {
-                stringProp("address", "Device hardware address of a connected peripheral.", required = true)
-                stringProp("service", "Service UUID.", required = true)
-                stringProp("characteristic", "Characteristic UUID.", required = true)
+                stringProp("address", "Device hardware address. Defaults to the most recently connected GATT device in this tunnel run.")
+                stringProp("service", "Service UUID (16-bit aliases such as fa are accepted). Defaults to the last-used service.")
+                stringProp("characteristic", "Characteristic UUID (16-bit aliases such as fa02 are accepted). Defaults to the last-used characteristic.")
                 stringProp("value_hex", "Bytes to write, as a hex string (e.g. \"01ff\").", required = true)
-                boolProp("with_response", "Whether to request a write response (default true).")
+                boolProp("with_response", "Whether to request a write response (default true). Bash aliases: --without-response and --no-response.")
                 intProp("timeout_ms", "How long to wait for the write, in ms.")
+            },
+        )
+        add(
+            descriptor(
+                "bt_gatt_write_sequence",
+                "Write an ordered, locally timed sequence of logical GATT frames and return one aggregate result. " +
+                    "Each frame contains one or more packet hex strings plus a hold_ms delay before the next frame. " +
+                    "Uses the most recently connected address and last-used service/characteristic unless overridden.",
+            ) {
+                stringProp(
+                    "sequence_json",
+                    "JSON array such as [{\"packets\":[\"01ff\",\"02aa\"],\"hold_ms\":1000}].",
+                    required = true,
+                )
+                stringProp("address", "Device address. Defaults to the most recently connected GATT device.")
+                stringProp("service", "Service UUID or short alias. Defaults to the last-used service.")
+                stringProp("characteristic", "Characteristic UUID or short alias. Defaults to the last-used characteristic.")
+                intProp("repeat", "Number of times to repeat the complete sequence (default 1).")
+                boolProp("with_response", "Confirm every write (default true). Bash aliases: --without-response and --no-response.")
+                intProp("timeout_ms", "Per-packet write timeout in ms.")
             },
         )
         add(
@@ -401,6 +440,7 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
                 intProp("max_bytes", "Stop once this many RX value bytes are collected.")
                 stringProp("return_format", "hex | utf8 (default hex).")
                 stringProp("decode", "raw | length_delimited (default raw).")
+                boolProp("require_reply", "Treat a reply timeout as an error (and a nonzero Bash exit) instead of returning timed_out=true.")
             },
         )
         add(
@@ -451,6 +491,7 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
             "bt_gatt_services" -> btGattServices(id, arguments)
             "bt_gatt_read" -> btGattRead(id, arguments)
             "bt_gatt_write" -> btGattWrite(id, arguments)
+            "bt_gatt_write_sequence" -> btGattWriteSequence(id, arguments)
             "bt_gatt_request_mtu" -> btGattRequestMtu(id, arguments)
             "bt_gatt_subscribe" -> btGattSubscribe(id, arguments)
             "bt_gatt_notifications_poll" -> btGattNotificationsPoll(id, arguments)
@@ -519,6 +560,18 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
                                 put("name", device.name?.let(::JsonPrimitive) ?: JsonNull)
                                 put("type", JsonPrimitive(device.type))
                                 put("rssi", JsonPrimitive(device.rssi))
+                                put(
+                                    "service_uuids",
+                                    buildJsonArray { device.serviceUuids.forEach { add(JsonPrimitive(it)) } },
+                                )
+                                put(
+                                    "manufacturer_data",
+                                    buildJsonObject {
+                                        device.manufacturerData.toSortedMap().forEach { (companyId, bytes) ->
+                                            put(companyId.toString(16).padStart(4, '0'), JsonPrimitive(toHex(bytes)))
+                                        }
+                                    },
+                                )
                             },
                         )
                     }
@@ -559,6 +612,7 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 15_000, max = 60_000)
         val result = source.gattConnect(address, timeout)
         result.error?.let { return err(id, it) }
+        gattDefaults = GattDefaults(address = address)
         return JsonRpc.textToolResult(id, gattPayload(address, result.services, connected = true).toString())
     }
 
@@ -572,13 +626,18 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
 
     private fun btGattRead(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
-        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
-        val service = stringArg(arguments, "service") ?: return err(id, "missing required argument: service")
-        val characteristic = stringArg(arguments, "characteristic")
-            ?: return err(id, "missing required argument: characteristic")
+        val address = gattAddress(arguments) ?: return invalidGattAddress(id, arguments)
+        val serviceRaw = stringArg(arguments, "service") ?: gattDefaults?.service
+            ?: return err(id, "missing required argument: service (no last-used GATT service is available)")
+        val characteristicRaw = stringArg(arguments, "characteristic") ?: gattDefaults?.characteristic
+            ?: return err(id, "missing required argument: characteristic (no last-used GATT characteristic is available)")
+        val service = canonicalGattUuid(serviceRaw) ?: return err(id, "invalid service UUID: $serviceRaw")
+        val characteristic = canonicalGattUuid(characteristicRaw)
+            ?: return err(id, "invalid characteristic UUID: $characteristicRaw")
         val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
         val result = source.gattRead(address, service, characteristic, timeout)
         result.error?.let { return err(id, it) }
+        rememberGatt(address, service, characteristic)
         val payload = buildJsonObject {
             put("address", JsonPrimitive(address))
             put("service", JsonPrimitive(service))
@@ -590,36 +649,150 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
 
     private fun btGattWrite(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
-        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
-        val service = stringArg(arguments, "service") ?: return err(id, "missing required argument: service")
-        val characteristic = stringArg(arguments, "characteristic")
-            ?: return err(id, "missing required argument: characteristic")
+        val address = gattAddress(arguments) ?: return invalidGattAddress(id, arguments)
+        val serviceRaw = stringArg(arguments, "service") ?: gattDefaults?.service
+            ?: return err(id, "missing required argument: service (no last-used GATT service is available)")
+        val characteristicRaw = stringArg(arguments, "characteristic") ?: gattDefaults?.characteristic
+            ?: return err(id, "missing required argument: characteristic (no last-used GATT characteristic is available)")
+        val service = canonicalGattUuid(serviceRaw) ?: return err(id, "invalid service UUID: $serviceRaw")
+        val characteristic = canonicalGattUuid(characteristicRaw)
+            ?: return err(id, "invalid characteristic UUID: $characteristicRaw")
         val valueHex = stringArg(arguments, "value_hex") ?: return err(id, "missing required argument: value_hex")
         val bytes = fromHex(valueHex) ?: return err(id, "invalid value_hex: expected an even-length hex string, got \"$valueHex\"")
         val withResponse = boolArg(arguments, "with_response") ?: true
         val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
-        return mapOp(id, source.gattWrite(address, service, characteristic, bytes, withResponse, timeout)) {
+        val result = source.gattWrite(address, service, characteristic, bytes, withResponse, timeout)
+        result.error?.let { return err(id, it) }
+        rememberGatt(address, service, characteristic)
+        val completion = if (withResponse) "confirmed" else "queued"
+        return JsonRpc.textToolResult(
+            id,
             buildJsonObject {
                 put("address", JsonPrimitive(address))
-                put("written", JsonPrimitive(true))
+                put("written", JsonPrimitive(withResponse))
+                put("queued", JsonPrimitive(!withResponse))
+                put("completion", JsonPrimitive(completion))
                 put("bytes", JsonPrimitive(bytes.size))
+            }.toString(),
+        )
+    }
+
+    private fun btGattWriteSequence(id: JsonElement, arguments: JsonObject): JsonObject {
+        preflight(id)?.let { return it }
+        val address = gattAddress(arguments) ?: return invalidGattAddress(id, arguments)
+        val serviceRaw = stringArg(arguments, "service") ?: gattDefaults?.service
+            ?: return err(id, "missing required argument: service (no last-used GATT service is available)")
+        val characteristicRaw = stringArg(arguments, "characteristic") ?: gattDefaults?.characteristic
+            ?: return err(id, "missing required argument: characteristic (no last-used GATT characteristic is available)")
+        val service = canonicalGattUuid(serviceRaw) ?: return err(id, "invalid service UUID: $serviceRaw")
+        val characteristic = canonicalGattUuid(characteristicRaw)
+            ?: return err(id, "invalid characteristic UUID: $characteristicRaw")
+        val rawSequence = stringArg(arguments, "sequence_json")
+            ?: return err(id, "missing required argument: sequence_json")
+        val repeat = intArg(arguments, "repeat") ?: 1
+        if (repeat !in 1..MAX_SEQUENCE_REPEATS) {
+            return err(id, "repeat must be between 1 and $MAX_SEQUENCE_REPEATS")
+        }
+        val parsed = parseGattSequence(rawSequence)
+        parsed.error?.let { return err(id, it) }
+        val frames = parsed.frames
+        val totalWrites = frames.sumOf { it.packets.size }.toLong() * repeat
+        if (totalWrites > MAX_SEQUENCE_WRITES) {
+            return err(id, "sequence expands to $totalWrites writes; limit is $MAX_SEQUENCE_WRITES")
+        }
+        val totalHoldMs = frames.sumOf(GattSequenceFrame::holdMs) * repeat
+        if (totalHoldMs > MAX_SEQUENCE_HOLD_MILLIS) {
+            return err(
+                id,
+                "sequence requests ${totalHoldMs}ms of holds; limit is ${MAX_SEQUENCE_HOLD_MILLIS}ms",
+            )
+        }
+        val negotiatedMtu = gattDefaults?.takeIf { it.address == address }?.negotiatedMtu
+        val maxPacketBytes = negotiatedMtu?.minus(3) ?: ABSOLUTE_MAX_GATT_VALUE_BYTES
+        frames.forEachIndexed { frameIndex, frame ->
+            frame.packets.forEachIndexed { packetIndex, packet ->
+                if (packet.size > maxPacketBytes) {
+                    val mtuContext = negotiatedMtu?.let { "negotiated MTU $it" } ?: "BLE maximum"
+                    return err(
+                        id,
+                        "frame $frameIndex packet $packetIndex is ${packet.size} bytes; " +
+                            "$mtuContext allows at most $maxPacketBytes value bytes",
+                    )
+                }
             }
         }
+
+        val withResponse = boolArg(arguments, "with_response") ?: true
+        val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
+        val startedAt = monotonicMillis()
+        var framesCompleted = 0
+        var writesCompleted = 0
+        var repeatsCompleted = 0
+        for (repeatIndex in 0 until repeat) {
+            for ((frameIndex, frame) in frames.withIndex()) {
+                for ((packetIndex, packet) in frame.packets.withIndex()) {
+                    val result = source.gattWrite(
+                        address,
+                        service,
+                        characteristic,
+                        packet,
+                        withResponse,
+                        timeout,
+                    )
+                    if (result.error != null) {
+                        return sequenceFailure(
+                            id = id,
+                            address = address,
+                            repeatIndex = repeatIndex,
+                            frameIndex = frameIndex,
+                            packetIndex = packetIndex,
+                            framesCompleted = framesCompleted,
+                            writesCompleted = writesCompleted,
+                            withResponse = withResponse,
+                            startedAt = startedAt,
+                            message = result.error,
+                        )
+                    }
+                    writesCompleted++
+                }
+                framesCompleted++
+                val isFinalFrame = repeatIndex == repeat - 1 && frameIndex == frames.lastIndex
+                if (!isFinalFrame && frame.holdMs > 0) sleep(frame.holdMs)
+            }
+            repeatsCompleted++
+        }
+        rememberGatt(address, service, characteristic)
+        return JsonRpc.textToolResult(
+            id,
+            buildJsonObject {
+                put("address", JsonPrimitive(address))
+                put("frames_completed", JsonPrimitive(framesCompleted))
+                put("repeats_completed", JsonPrimitive(repeatsCompleted))
+                put("writes_confirmed", JsonPrimitive(if (withResponse) writesCompleted else 0))
+                put("writes_queued", JsonPrimitive(if (withResponse) 0 else writesCompleted))
+                put("completion", JsonPrimitive(if (withResponse) "confirmed" else "queued"))
+                put("elapsed_ms", JsonPrimitive((monotonicMillis() - startedAt).coerceAtLeast(0)))
+            }.toString(),
+        )
     }
 
     // -- GATT notify / indicate --------------------------------------------
 
     private fun btGattRequestMtu(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
-        val address = address(id, arguments) ?: return invalidAddress(id, arguments)
+        val address = gattAddress(arguments) ?: return invalidGattAddress(id, arguments)
         // Android's default ATT MTU is 23 (20 usable); multi-packet frames and
         // large protobuf payloads need more, so 517 (the BLE max) is the default.
         val requested = (intArg(arguments, "mtu") ?: DEFAULT_MTU).coerceIn(MIN_MTU, MAX_MTU)
         val timeout = clampTimeout(intArg(arguments, "timeout_ms"), default = 10_000, max = 60_000)
         val result = source.gattRequestMtu(address, requested, timeout)
         result.error?.let { return err(id, it) }
+        val current = gattDefaults?.takeIf { it.address == address }
+        gattDefaults = (current ?: GattDefaults(address)).copy(negotiatedMtu = result.mtu)
         val payload = buildJsonObject {
             put("address", JsonPrimitive(address))
+            put("requested_mtu", JsonPrimitive(requested))
+            put("negotiated_mtu", JsonPrimitive(result.mtu))
             put("mtu", JsonPrimitive(result.mtu))
         }
         return JsonRpc.textToolResult(id, payload.toString())
@@ -705,9 +878,14 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
             withResponse, timeout, idleTimeout, maxBytes, decode,
         )
         result.error?.let { return err(id, it) }
+        if (result.timedOut && boolArg(arguments, "require_reply") == true) {
+            return err(id, "timed out waiting for a GATT reply")
+        }
         val base = notificationsPayload(result.events, result.overflowCount, result.frames, returnFormat)
         val payload = buildJsonObject {
-            put("tx_written", JsonPrimitive(result.txWritten))
+            put("tx_written", JsonPrimitive(result.txWritten && withResponse))
+            put("tx_queued", JsonPrimitive(result.txWritten && !withResponse))
+            put("tx_completion", JsonPrimitive(if (withResponse) "confirmed" else "queued"))
             put("timed_out", JsonPrimitive(result.timedOut))
             base.forEach { (k, v) -> put(k, v) }
         }
@@ -768,7 +946,9 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
     private fun btGattDisconnect(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
         val address = address(id, arguments) ?: return invalidAddress(id, arguments)
-        return mapOp(id, source.gattDisconnect(address)) {
+        val result = source.gattDisconnect(address)
+        if (result.error == null && gattDefaults?.address == address) gattDefaults = null
+        return mapOp(id, result) {
             buildJsonObject {
                 put("address", JsonPrimitive(address))
                 put("disconnected", JsonPrimitive(true))
@@ -916,6 +1096,135 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         }
     }
 
+    private fun gattAddress(arguments: JsonObject): String? =
+        address(JsonPrimitive(0), arguments) ?: if (arguments["address"] == null) gattDefaults?.address else null
+
+    private fun invalidGattAddress(id: JsonElement, arguments: JsonObject): JsonObject =
+        if (arguments["address"] == null) {
+            err(id, "missing required argument: address (connect a GATT device first to establish a session default)")
+        } else {
+            invalidAddress(id, arguments)
+        }
+
+    private fun rememberGatt(address: String, service: String, characteristic: String) {
+        val mtu = gattDefaults?.takeIf { it.address == address }?.negotiatedMtu
+        gattDefaults = GattDefaults(address, service, characteristic, mtu)
+    }
+
+    private fun parseGattSequence(raw: String): ParsedGattSequence {
+        val root = try {
+            Json.parseToJsonElement(raw).jsonArray
+        } catch (_: Exception) {
+            return ParsedGattSequence(error = "sequence_json must be a JSON array of frame objects")
+        }
+        if (root.isEmpty()) return ParsedGattSequence(error = "sequence_json must contain at least one frame")
+        if (root.size > MAX_SEQUENCE_FRAMES) {
+            return ParsedGattSequence(error = "sequence contains ${root.size} frames; limit is $MAX_SEQUENCE_FRAMES")
+        }
+        val frames = mutableListOf<GattSequenceFrame>()
+        root.forEachIndexed { frameIndex, element ->
+            val frame = try {
+                element.jsonObject
+            } catch (_: Exception) {
+                return ParsedGattSequence(error = "frame $frameIndex must be a JSON object")
+            }
+            val packetElements = try {
+                frame["packets"]?.jsonArray
+                    ?: return ParsedGattSequence(error = "frame $frameIndex is missing packets")
+            } catch (_: Exception) {
+                return ParsedGattSequence(error = "frame $frameIndex packets must be a JSON array")
+            }
+            if (packetElements.isEmpty()) {
+                return ParsedGattSequence(error = "frame $frameIndex must contain at least one packet")
+            }
+            if (packetElements.size > MAX_PACKETS_PER_FRAME) {
+                return ParsedGattSequence(
+                    error = "frame $frameIndex contains ${packetElements.size} packets; limit is $MAX_PACKETS_PER_FRAME",
+                )
+            }
+            val packets = packetElements.mapIndexed { packetIndex, packetElement ->
+                val packetHex = try {
+                    packetElement.jsonPrimitive.takeIf(JsonPrimitive::isString)?.content
+                } catch (_: Exception) {
+                    null
+                } ?: return ParsedGattSequence(error = "frame $frameIndex packet $packetIndex must be a hex string")
+                fromHex(packetHex) ?: return ParsedGattSequence(
+                    error = "frame $frameIndex packet $packetIndex is not an even-length hex string",
+                )
+            }
+            val holdMs = frame["hold_ms"]?.let { holdElement ->
+                val parsedHold = try {
+                    holdElement.jsonPrimitive.takeUnless(JsonPrimitive::isString)?.content?.toLongOrNull()
+                } catch (_: Exception) {
+                    null
+                }
+                parsedHold ?: return ParsedGattSequence(error = "frame $frameIndex hold_ms must be an integer")
+            } ?: 0L
+            if (holdMs !in 0..MAX_FRAME_HOLD_MILLIS) {
+                return ParsedGattSequence(
+                    error = "frame $frameIndex hold_ms must be between 0 and $MAX_FRAME_HOLD_MILLIS",
+                )
+            }
+            frames += GattSequenceFrame(packets, holdMs)
+        }
+        return ParsedGattSequence(frames = frames)
+    }
+
+    private fun sequenceFailure(
+        id: JsonElement,
+        address: String,
+        repeatIndex: Int,
+        frameIndex: Int,
+        packetIndex: Int,
+        framesCompleted: Int,
+        writesCompleted: Int,
+        withResponse: Boolean,
+        startedAt: Long,
+        message: String,
+    ): JsonObject = JsonRpc.textToolResult(
+        id,
+        buildJsonObject {
+            put("address", JsonPrimitive(address))
+            put("failed_repeat_index", JsonPrimitive(repeatIndex))
+            put("failed_frame_index", JsonPrimitive(frameIndex))
+            put("failed_packet_index", JsonPrimitive(packetIndex))
+            put("frames_completed", JsonPrimitive(framesCompleted))
+            put("writes_confirmed", JsonPrimitive(if (withResponse) writesCompleted else 0))
+            put("writes_queued", JsonPrimitive(if (withResponse) 0 else writesCompleted))
+            put("elapsed_ms", JsonPrimitive((monotonicMillis() - startedAt).coerceAtLeast(0)))
+            put("error", JsonPrimitive(message))
+        }.toString(),
+        isError = true,
+    )
+
+    private fun canonicalGattUuid(raw: String): String? {
+        val compact = raw.trim().removePrefix("0x").lowercase()
+        val canonical = when {
+            compact.matches(Regex("^[0-9a-f]{1,4}$")) ->
+                "0000${compact.padStart(4, '0')}-0000-1000-8000-00805f9b34fb"
+            compact.matches(Regex("^[0-9a-f]{8}$")) -> "$compact-0000-1000-8000-00805f9b34fb"
+            else -> compact
+        }
+        return runCatching { java.util.UUID.fromString(canonical).toString() }.getOrNull()
+    }
+
+    private data class GattDefaults(
+        val address: String,
+        val service: String? = null,
+        val characteristic: String? = null,
+        val negotiatedMtu: Int? = null,
+    )
+
+    private data class GattSequenceFrame(
+        val packets: List<ByteArray>,
+        val holdMs: Long,
+    )
+
+    private data class ParsedGattSequence(
+        val frames: List<GattSequenceFrame> = emptyList(),
+        val error: String? = null,
+    )
+
     // -- Tool-descriptor DSL ------------------------------------------------
 
     private class SchemaBuilder {
@@ -999,6 +1308,14 @@ class BluetoothModule(private val source: BluetoothControlSource) : BaseMcpModul
         private const val DEFAULT_MTU = 517
         private const val MIN_MTU = 23
         private const val MAX_MTU = 517
+
+        private const val ABSOLUTE_MAX_GATT_VALUE_BYTES = 514
+        private const val MAX_SEQUENCE_FRAMES = 64
+        private const val MAX_PACKETS_PER_FRAME = 64
+        private const val MAX_SEQUENCE_WRITES = 256
+        private const val MAX_SEQUENCE_REPEATS = 100
+        private const val MAX_FRAME_HOLD_MILLIS = 10_000L
+        private const val MAX_SEQUENCE_HOLD_MILLIS = 30_000L
 
         private val SUBSCRIBE_MODES = setOf("notify", "indicate", "auto")
         private val RETURN_FORMATS = setOf("hex", "utf8")

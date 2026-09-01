@@ -76,7 +76,9 @@ data class UsbPermissionResult(
  * interface) are held by [UsbDeviceInfo.deviceName] inside the source across
  * tool calls, so `usb_open` -> transfers -> `usb_close` reference one session.
  */
-interface UsbSource {
+interface UsbSource : AutoCloseable {
+    /** Release every claimed interface/connection when the tunnel run ends. */
+    override fun close() = Unit
     /** Whether the device advertises USB host (OTG) support at all. */
     val hostSupported: Boolean
 
@@ -146,9 +148,11 @@ interface UsbSource {
  * (all JVM-testable); the [UsbSource] owns `UsbManager` access and holds live
  * connections by device name.
  */
-class UsbModule(private val source: UsbSource) : BaseMcpModule() {
+class UsbModule(private val source: UsbSource) : BaseMcpModule(), AutoCloseable {
 
     override val name: String = NAME
+
+    override fun close() = source.close()
 
     override fun toolDescriptors(): JsonElement = buildJsonArray {
         add(

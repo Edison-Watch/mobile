@@ -69,6 +69,13 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
                 Manifest.permission.BLUETOOTH_SCAN,
             ) == PackageManager.PERMISSION_GRANTED
 
+    override fun close() {
+        gattConnections.values.forEach(GattConnection::close)
+        gattConnections.clear()
+        sppConnections.values.forEach(SppConnection::close)
+        sppConnections.clear()
+    }
+
     override fun bondedDevices(): List<BondedDevice> {
         // Callers check [hasConnectPermission] first, but the user can revoke
         // it at any moment - degrade to an empty list instead of crashing.
@@ -109,6 +116,14 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
                     },
                     type = deviceType(device),
                     rssi = result.rssi,
+                    serviceUuids = result.scanRecord?.serviceUuids.orEmpty().map { it.uuid.toString() },
+                    manufacturerData = result.scanRecord?.manufacturerSpecificData?.let { data ->
+                        buildMap {
+                            for (index in 0 until data.size()) {
+                                data.valueAt(index)?.let { put(data.keyAt(index), it.copyOf()) }
+                            }
+                        }
+                    }.orEmpty(),
                 )
             }
 
@@ -300,6 +315,12 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
                 }
             }
             if (!started) return BtOpResult("failed to start write of $characteristic")
+            // Android does not promise an acknowledgement callback for a
+            // WRITE_TYPE_NO_RESPONSE operation. A successful API return only
+            // means the bytes entered the local Bluetooth stack, so report
+            // that immediately instead of timing out while waiting for an
+            // acknowledgement the protocol explicitly disabled.
+            if (!withResponse) return BtOpResult()
             if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
                 return BtOpResult("timed out writing $characteristic")
             }
@@ -671,9 +692,21 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
         service: String,
         characteristic: String,
     ): BluetoothGattCharacteristic? = try {
-        gatt.getService(UUID.fromString(service))?.getCharacteristic(UUID.fromString(characteristic))
+        gatt.getService(expandBluetoothUuid(service))?.getCharacteristic(expandBluetoothUuid(characteristic))
     } catch (_: IllegalArgumentException) {
         null
+    }
+
+    /** Accept canonical UUIDs plus common 16/32-bit Bluetooth aliases. */
+    private fun expandBluetoothUuid(value: String): UUID {
+        val compact = value.trim().removePrefix("0x").lowercase()
+        val canonical = when {
+            compact.matches(Regex("^[0-9a-f]{1,4}$")) ->
+                "0000${compact.padStart(4, '0')}-0000-1000-8000-00805f9b34fb"
+            compact.matches(Regex("^[0-9a-f]{8}$")) -> "$compact-0000-1000-8000-00805f9b34fb"
+            else -> compact
+        }
+        return UUID.fromString(canonical)
     }
 
     private fun propertyNames(properties: Int): List<String> = buildList {

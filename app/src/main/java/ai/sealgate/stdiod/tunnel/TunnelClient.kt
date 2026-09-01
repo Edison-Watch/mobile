@@ -64,6 +64,7 @@ class TunnelClient(
 
     private var loopJob: Job? = null
     private var webSocket: WebSocket? = null
+    private var modulesClosed = false
 
     fun start() {
         if (loopJob?.isActive == true) return
@@ -75,6 +76,12 @@ class TunnelClient(
         loopJob = null
         webSocket?.close(NORMAL_CLOSURE, "client stopping")
         webSocket = null
+        if (!modulesClosed) {
+            modulesClosed = true
+            modulesByName.values.filterIsInstance<AutoCloseable>().forEach { module ->
+                runCatching(module::close).onFailure { Log.w(TAG, "failed to close module ${module.javaClass.simpleName}", it) }
+            }
+        }
         _state.value = TunnelState.Disconnected
     }
 

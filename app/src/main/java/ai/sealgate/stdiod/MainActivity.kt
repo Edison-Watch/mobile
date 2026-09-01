@@ -18,6 +18,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import ai.sealgate.stdiod.databinding.ActivityMainBinding
 import ai.sealgate.stdiod.tunnel.TunnelState
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -53,6 +54,27 @@ class MainActivity : AppCompatActivity() {
         binding.gatewayUrlInput.setText(stored.gatewayUrl)
         binding.apiKeyInput.setText(stored.authToken)
         binding.settingsPanel.visibility = if (stored.isValid()) View.GONE else View.VISIBLE
+
+        binding.swipeRefresh.setColorSchemeResources(R.color.core_cyan)
+        binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.baseline_black)
+        binding.swipeRefresh.setOnRefreshListener {
+            binding.swipeRefresh.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            val config = TunnelSettings.load(this)
+            if (tunnelState == null || !config.isValid()) {
+                binding.swipeRefresh.isRefreshing = false
+                return@setOnRefreshListener
+            }
+
+            // A refresh is a controlled reconnect, not a configuration reset:
+            // preserve the active endpoint and credentials.
+            TunnelService.start(this, config)
+            lifecycleScope.launch {
+                // The status view owns ongoing progress; the refresh indicator
+                // only acknowledges that the reconnect request was accepted.
+                delay(REFRESH_INDICATOR_MILLIS)
+                binding.swipeRefresh.isRefreshing = false
+            }
+        }
 
         binding.settingsButton.setOnClickListener {
             val showing = binding.settingsPanel.visibility == View.VISIBLE
@@ -136,6 +158,7 @@ class MainActivity : AppCompatActivity() {
         binding.statusText.setTextColor(stateColor)
         binding.statusIndicator.backgroundTintList = ColorStateList.valueOf(stateColor)
         binding.tunnelVisual.setState(state)
+        binding.swipeRefresh.isEnabled = state != null
         binding.tunnelButton.text = getString(
             if (state == null) R.string.action_connect else R.string.action_stop,
         )
@@ -178,5 +201,9 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (wanted.isNotEmpty()) requestBluetoothPermissions.launch(wanted.toTypedArray())
+    }
+
+    companion object {
+        private const val REFRESH_INDICATOR_MILLIS = 650L
     }
 }

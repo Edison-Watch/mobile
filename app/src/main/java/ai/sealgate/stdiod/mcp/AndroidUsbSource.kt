@@ -249,6 +249,11 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
         return UsbOpResult()
     }
 
+    override fun close() {
+        sessions.values.forEach(Session::close)
+        sessions.clear()
+    }
+
     // -- Helpers ------------------------------------------------------------
 
     private fun findDevice(manager: UsbManager, deviceName: String): UsbDevice? = try {

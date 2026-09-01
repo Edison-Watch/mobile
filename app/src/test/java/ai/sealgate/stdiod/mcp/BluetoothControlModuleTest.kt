@@ -2,6 +2,8 @@ package ai.sealgate.stdiod.mcp
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -38,6 +40,10 @@ private class FakeBluetoothControl(
 
     var lastWriteValue: ByteArray? = null
     var lastWriteWithResponse: Boolean? = null
+    var lastWriteAddress: String? = null
+    var lastWriteService: String? = null
+    var lastWriteCharacteristic: String? = null
+    val writtenValues = mutableListOf<ByteArray>()
     var lastSendValue: ByteArray? = null
     var lastScanTimeout: Long? = null
 
@@ -62,7 +68,11 @@ private class FakeBluetoothControl(
         withResponse: Boolean,
         timeoutMs: Long,
     ): BtOpResult {
+        lastWriteAddress = address
+        lastWriteService = service
+        lastWriteCharacteristic = characteristic
         lastWriteValue = value
+        writtenValues += value.copyOf()
         lastWriteWithResponse = withResponse
         return gattWriteResult
     }
@@ -166,6 +176,14 @@ class BluetoothControlModuleTest {
             """{"address":"$addr","service":"180f","characteristic":"2a19","value_hex":"00","with_response":false}""",
         )
         assertEquals(false, fake.lastWriteWithResponse)
+        val payload = Json.parseToJsonElement(textOf(call(
+            fake,
+            "bt_gatt_write",
+            """{"address":"$addr","service":"180f","characteristic":"2a19","value_hex":"00","with_response":false}""",
+        ))).jsonObject
+        assertEquals(false, payload["written"]?.jsonPrimitive?.content.toBoolean())
+        assertEquals(true, payload["queued"]?.jsonPrimitive?.content.toBoolean())
+        assertEquals("queued", payload["completion"]?.jsonPrimitive?.content)
     }
 
     @Test
@@ -187,7 +205,16 @@ class BluetoothControlModuleTest {
     fun scanReportsDiscoveredDevicesAndClampsTimeout() {
         val fake = FakeBluetoothControl(
             scanResult = ScanResult(
-                devices = listOf(ScannedDevice(address = addr, name = "Widget", type = "le", rssi = -55)),
+                devices = listOf(
+                    ScannedDevice(
+                        address = addr,
+                        name = "Widget",
+                        type = "le",
+                        rssi = -55,
+                        serviceUuids = listOf("0000180f-0000-1000-8000-00805f9b34fb"),
+                        manufacturerData = mapOf(0x004c to byteArrayOf(0x01, 0x02)),
+                    ),
+                ),
             ),
         )
         val result = call(fake, "bt_scan", """{"timeout_ms":999999}""")
@@ -198,6 +225,138 @@ class BluetoothControlModuleTest {
         assertEquals(addr, devices[0].jsonObject["address"]?.jsonPrimitive?.content)
         assertEquals("Widget", devices[0].jsonObject["name"]?.jsonPrimitive?.content)
         assertEquals(-55, devices[0].jsonObject["rssi"]?.jsonPrimitive?.content?.toInt())
+        assertEquals(
+            "0000180f-0000-1000-8000-00805f9b34fb",
+            devices[0].jsonObject["service_uuids"]?.jsonArray?.single()?.jsonPrimitive?.content,
+        )
+        assertEquals(
+            "0102",
+            devices[0].jsonObject["manufacturer_data"]?.jsonObject?.get("004c")?.jsonPrimitive?.content,
+        )
+    }
+
+    @Test
+    fun gattWriteUsesEphemeralDefaultsAndShortUuidAliases() {
+        val fake = FakeBluetoothControl()
+        val module = BluetoothModule(fake)
+        fun moduleCall(toolName: String, arguments: String): JsonObject {
+            val response = module.handle(
+                rpc(
+                    """{"jsonrpc":"2.0","id":1,"method":"tools/call",
+                       "params":{"name":"$toolName","arguments":$arguments}}""",
+                ),
+            )!!
+            return response["result"]!!.jsonObject
+        }
+
+        assertFalse(isError(moduleCall("bt_gatt_connect", """{"address":"$addr"}""")))
+        assertFalse(
+            isError(
+                moduleCall(
+                    "bt_gatt_write",
+                    """{"service":"fa","characteristic":"fa02","value_hex":"01"}""",
+                ),
+            ),
+        )
+        assertEquals(addr, fake.lastWriteAddress)
+        assertEquals("000000fa-0000-1000-8000-00805f9b34fb", fake.lastWriteService)
+        assertEquals("0000fa02-0000-1000-8000-00805f9b34fb", fake.lastWriteCharacteristic)
+
+        assertFalse(isError(moduleCall("bt_gatt_write", """{"value_hex":"02"}""")))
+        assertEquals("000000fa-0000-1000-8000-00805f9b34fb", fake.lastWriteService)
+        assertEquals("0000fa02-0000-1000-8000-00805f9b34fb", fake.lastWriteCharacteristic)
+    }
+
+    @Test
+    fun gattWriteSequenceRepeatsLogicalFramesWithLocalHoldsAndOneSummary() {
+        val fake = FakeBluetoothControl()
+        val holds = mutableListOf<Long>()
+        var clock = 1_000L
+        val module = BluetoothModule(
+            source = fake,
+            sleep = { millis ->
+                holds += millis
+                clock += millis
+            },
+            monotonicMillis = { clock },
+        )
+        fun moduleCall(toolName: String, arguments: JsonObject): JsonObject = module.handle(
+            rpc(
+                buildJsonObject {
+                    put("jsonrpc", JsonPrimitive("2.0"))
+                    put("id", JsonPrimitive(1))
+                    put("method", JsonPrimitive("tools/call"))
+                    put(
+                        "params",
+                        buildJsonObject {
+                            put("name", JsonPrimitive(toolName))
+                            put("arguments", arguments)
+                        },
+                    )
+                }.toString(),
+            ),
+        )!!["result"]!!.jsonObject
+
+        assertFalse(
+            isError(
+                moduleCall(
+                    "bt_gatt_connect",
+                    buildJsonObject { put("address", JsonPrimitive(addr)) },
+                ),
+            ),
+        )
+        val result = moduleCall(
+            "bt_gatt_write_sequence",
+            buildJsonObject {
+                put("service", JsonPrimitive("fa"))
+                put("characteristic", JsonPrimitive("fa02"))
+                put(
+                    "sequence_json",
+                    JsonPrimitive(
+                        """[{"packets":["01","0203"],"hold_ms":25},{"packets":["04"],"hold_ms":10}]""",
+                    ),
+                )
+                put("repeat", JsonPrimitive(2))
+            },
+        )
+
+        assertFalse(isError(result))
+        val payload = Json.parseToJsonElement(textOf(result)).jsonObject
+        assertEquals(4, payload["frames_completed"]!!.jsonPrimitive.content.toInt())
+        assertEquals(2, payload["repeats_completed"]!!.jsonPrimitive.content.toInt())
+        assertEquals(6, payload["writes_confirmed"]!!.jsonPrimitive.content.toInt())
+        assertEquals(0, payload["writes_queued"]!!.jsonPrimitive.content.toInt())
+        assertEquals(60, payload["elapsed_ms"]!!.jsonPrimitive.content.toLong())
+        assertEquals(listOf(25L, 10L, 25L), holds)
+        assertEquals(
+            listOf("01", "0203", "04", "01", "0203", "04"),
+            fake.writtenValues.map { bytes -> bytes.joinToString("") { "%02x".format(it) } },
+        )
+    }
+
+    @Test
+    fun gattWriteSequenceRejectsPacketsLargerThanNegotiatedMtu() {
+        val fake = FakeBluetoothControl()
+        val module = BluetoothModule(fake, sleep = {}, monotonicMillis = { 0L })
+        fun moduleCall(toolName: String, arguments: String): JsonObject = module.handle(
+            rpc(
+                """{"jsonrpc":"2.0","id":1,"method":"tools/call",
+                   "params":{"name":"$toolName","arguments":$arguments}}""",
+            ),
+        )!!["result"]!!.jsonObject
+
+        assertFalse(isError(moduleCall("bt_gatt_connect", """{"address":"$addr"}""")))
+        assertFalse(isError(moduleCall("bt_gatt_request_mtu", """{"mtu":23}""")))
+        val tooLarge = "00".repeat(21)
+        val result = moduleCall(
+            "bt_gatt_write_sequence",
+            """{"service":"fa","characteristic":"fa02",
+                "sequence_json":"[{\"packets\":[\"$tooLarge\"]}]"}""",
+        )
+
+        assertTrue(isError(result))
+        assertTrue(textOf(result).contains("allows at most 20 value bytes"))
+        assertTrue(fake.writtenValues.isEmpty())
     }
 
     @Test

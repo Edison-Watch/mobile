@@ -10,8 +10,10 @@ coroutines = "1.9.0"
 serializationJson = "1.7.3"
 okhttp = "4.12.0"
 junit = "4.13.2"
+quickjsKt = "1.0.5"
 androidxJunit = "1.2.1"
 espressoCore = "3.6.1"
+swipeRefreshLayout = "1.2.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -23,9 +25,11 @@ androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecyc
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+quickjs-kt = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjsKt" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "swiperefreshlayout", version.ref = "swipeRefreshLayout" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
