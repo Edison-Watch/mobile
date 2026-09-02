@@ -360,6 +360,60 @@ class BluetoothControlModuleTest {
     }
 
     @Test
+    fun gattWriteSequenceUsesDefaultAttMtuUntilNegotiated() {
+        val fake = FakeBluetoothControl()
+        val module = BluetoothModule(fake, sleep = {}, monotonicMillis = { 0L })
+        fun moduleCall(toolName: String, arguments: String): JsonObject = module.handle(
+            rpc(
+                """{"jsonrpc":"2.0","id":1,"method":"tools/call",
+                   "params":{"name":"$toolName","arguments":$arguments}}""",
+            ),
+        )!!["result"]!!.jsonObject
+
+        assertFalse(isError(moduleCall("bt_gatt_connect", """{"address":"$addr"}""")))
+        val tooLarge = "00".repeat(21)
+        val result = moduleCall(
+            "bt_gatt_write_sequence",
+            """{"service":"fa","characteristic":"fa02",
+                "sequence_json":"[{\"packets\":[\"$tooLarge\"]}]"}""",
+        )
+
+        assertTrue(isError(result))
+        assertTrue(textOf(result).contains("default ATT MTU 23 allows at most 20 value bytes"))
+        assertTrue(fake.writtenValues.isEmpty())
+    }
+
+    @Test
+    fun explicitDifferentGattAddressDoesNotReuseAnotherDevicesServiceDefaults() {
+        val fake = FakeBluetoothControl()
+        val module = BluetoothModule(fake)
+        fun moduleCall(toolName: String, arguments: String): JsonObject = module.handle(
+            rpc(
+                """{"jsonrpc":"2.0","id":1,"method":"tools/call",
+                   "params":{"name":"$toolName","arguments":$arguments}}""",
+            ),
+        )!!["result"]!!.jsonObject
+
+        assertFalse(isError(moduleCall("bt_gatt_connect", """{"address":"$addr"}""")))
+        assertFalse(
+            isError(
+                moduleCall(
+                    "bt_gatt_write",
+                    """{"service":"fa","characteristic":"fa02","value_hex":"01"}""",
+                ),
+            ),
+        )
+        val result = moduleCall(
+            "bt_gatt_write",
+            """{"address":"11:22:33:44:55:66","value_hex":"02"}""",
+        )
+
+        assertTrue(isError(result))
+        assertTrue(textOf(result).contains("missing required argument: service"))
+        assertEquals(1, fake.writtenValues.size)
+    }
+
+    @Test
     fun gattReadWhenNotConnectedIsAnInBandError() {
         val fake = FakeBluetoothControl(
             gattReadResult = GattReadResult(error = "not connected: call bt_gatt_connect first for this device"),

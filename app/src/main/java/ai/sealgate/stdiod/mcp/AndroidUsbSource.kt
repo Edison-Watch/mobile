@@ -34,6 +34,8 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
         get() = context.getSystemService(Context.USB_SERVICE) as? UsbManager
 
     private val sessions = ConcurrentHashMap<String, Session>()
+    private val lifecycleLock = Any()
+    @Volatile private var closed = false
 
     override val hostSupported: Boolean
         get() = context.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST) &&
@@ -142,6 +144,7 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
     }
 
     override fun open(deviceName: String, interfaceIndex: Int): UsbOpenResult {
+        if (closed) return UsbOpenResult(error = "USB source is closed")
         val manager = usbManager ?: return UsbOpenResult(error = "USB host service is unavailable on this device")
         val device = findDevice(manager, deviceName)
             ?: return UsbOpenResult(error = "unknown USB device: $deviceName (call usb_list_devices)")
@@ -155,7 +158,10 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
                 )
             }
             // Drop any stale session for the same device first.
-            sessions.remove(deviceName)?.close()
+            synchronized(lifecycleLock) {
+                if (closed) return UsbOpenResult(error = "USB source is closed")
+                sessions.remove(deviceName)
+            }?.close()
             val iface = device.getInterface(interfaceIndex)
             val connection = manager.openDevice(device)
                 ?: return UsbOpenResult(error = "could not open USB device $deviceName")
@@ -163,7 +169,19 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
                 connection.close()
                 return UsbOpenResult(error = "could not claim interface $interfaceIndex on $deviceName")
             }
-            sessions[deviceName] = Session(connection, iface)
+            val session = Session(connection, iface)
+            var replaced: Session? = null
+            val accepted = synchronized(lifecycleLock) {
+                if (closed) false else {
+                    replaced = sessions.put(deviceName, session)
+                    true
+                }
+            }
+            replaced?.close()
+            if (!accepted) {
+                session.close()
+                return UsbOpenResult(error = "USB source was closed while opening $deviceName")
+            }
             UsbOpenResult(endpoints = endpointsOf(iface))
         } catch (e: SecurityException) {
             UsbOpenResult(error = "USB permission denied: ${e.message}")
@@ -250,8 +268,12 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
     }
 
     override fun close() {
-        sessions.values.forEach(Session::close)
-        sessions.clear()
+        val toClose = synchronized(lifecycleLock) {
+            if (closed) return
+            closed = true
+            sessions.values.toList().also { sessions.clear() }
+        }
+        toClose.forEach(Session::close)
     }
 
     // -- Helpers ------------------------------------------------------------

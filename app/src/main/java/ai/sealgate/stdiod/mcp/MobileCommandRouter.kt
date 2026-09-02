@@ -98,14 +98,14 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
             return fail("$namespace: $message")
         }
         val isError = result["isError"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true
-        val text = result["content"]?.jsonArray
+        val rawText = result["content"]?.jsonArray
             ?.firstOrNull()
             ?.jsonObject
             ?.get("text")
             ?.jsonPrimitive
             ?.content
             .orEmpty()
-            .useCliNames()
+        val text = if (isError) rawText.useCliNames() else rawText
         return if (isError) {
             ShellCommandResult(stderr = text.ensureTrailingNewline(), exitCode = 1)
         } else {
@@ -294,6 +294,10 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
             spec("usb", "close", "usb", "usb_close", "device_name"),
         )
 
-        private val CLI_BY_TOOL = SPECS.associate { it.tool to "${it.namespace} ${it.path.joinToString(" ")}" }
+        private val CLI_BY_TOOL = buildMap {
+            SPECS.forEach { spec ->
+                if (spec.tool !in this) put(spec.tool, "${spec.namespace} ${spec.path.joinToString(" ")}")
+            }
+        }
     }
 }

@@ -5,6 +5,7 @@ import com.dokar.quickjs.QuickJsException
 import com.dokar.quickjs.binding.asyncFunction
 import com.dokar.quickjs.binding.function
 import com.dokar.quickjs.evaluate
+import java.security.SecureRandom
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,7 @@ class QuickJsMobileBashRuntime(
     private val commandRouter: MobileCommandRouter,
 ) : MobileBashRuntime {
     private val lock = ReentrantLock()
+    private val secureRandom = SecureRandom()
     private var quickJs: QuickJs? = null
     private var completedResult: String? = null
 
@@ -77,6 +79,11 @@ class QuickJsMobileBashRuntime(
             memoryLimit = QUICKJS_MEMORY_LIMIT_BYTES
             maxStackSize = QUICKJS_STACK_LIMIT_BYTES
             function<String, String>("__mobileCommand", commandRouter::executeJson)
+            function<Int, String>("__mobileRandomHex") { byteCount ->
+                require(byteCount in 0..MAX_RANDOM_BYTES) { "random byte request exceeds 64 KiB" }
+                ByteArray(byteCount).also(secureRandom::nextBytes)
+                    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            }
             asyncFunction<Long, Unit>("__mobileSleep") { millis ->
                 delay(millis.coerceIn(0, EXECUTION_TIMEOUT_MILLIS))
             }
@@ -105,6 +112,7 @@ class QuickJsMobileBashRuntime(
         private const val EXECUTION_TIMEOUT_MILLIS = 60_000L
         private const val QUICKJS_MEMORY_LIMIT_BYTES = 64L * 1024L * 1024L
         private const val QUICKJS_STACK_LIMIT_BYTES = 2L * 1024L * 1024L
+        private const val MAX_RANDOM_BYTES = 65_536
 
         /** QuickJS intentionally starts without browser or Android host globals. */
         private val POLYFILLS = """
@@ -117,7 +125,13 @@ class QuickJsMobileBashRuntime(
             globalThis.performance = Object.freeze({ now: () => Date.now() });
             globalThis.crypto = Object.freeze({
               getRandomValues: array => {
-                for (let i = 0; i < array.length; i++) array[i] = Math.floor(Math.random() * 256);
+                if (!ArrayBuffer.isView(array) || array instanceof DataView) {
+                  throw new TypeError("Expected an integer typed array");
+                }
+                if (array.byteLength > 65536) throw new DOMException("Quota exceeded", "QuotaExceededError");
+                const hex = __mobileRandomHex(array.byteLength);
+                const bytes = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
+                for (let i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
                 return array;
               }
             });
@@ -132,11 +146,30 @@ class QuickJsMobileBashRuntime(
             };
             globalThis.TextDecoder = class TextDecoder {
               decode(value = new Uint8Array()) {
-                let binary = "";
-                for (let index = 0; index < value.length; index += 8192) {
-                  binary += String.fromCharCode(...value.subarray(index, index + 8192));
+                const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+                let output = "";
+                for (let i = 0; i < bytes.length;) {
+                  const first = bytes[i];
+                  if (first <= 0x7f) { output += String.fromCharCode(first); i++; continue; }
+                  let needed, codePoint, minimum;
+                  if (first >= 0xc2 && first <= 0xdf) { needed = 1; codePoint = first & 0x1f; minimum = 0x80; }
+                  else if (first >= 0xe0 && first <= 0xef) { needed = 2; codePoint = first & 0x0f; minimum = 0x800; }
+                  else if (first >= 0xf0 && first <= 0xf4) { needed = 3; codePoint = first & 0x07; minimum = 0x10000; }
+                  else { output += "\ufffd"; i++; continue; }
+                  if (i + needed >= bytes.length) { output += "\ufffd"; i++; continue; }
+                  let valid = true;
+                  for (let j = 1; j <= needed; j++) {
+                    if ((bytes[i + j] & 0xc0) !== 0x80) { valid = false; break; }
+                    codePoint = (codePoint << 6) | (bytes[i + j] & 0x3f);
+                  }
+                  if (!valid || codePoint < minimum || codePoint > 0x10ffff ||
+                      (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
+                    output += "\ufffd"; i++; continue;
+                  }
+                  output += String.fromCodePoint(codePoint);
+                  i += needed + 1;
                 }
-                return decodeURIComponent(escape(binary));
+                return output;
               }
             };
             let nextTimerId = 1;

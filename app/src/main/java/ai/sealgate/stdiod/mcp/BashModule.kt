@@ -76,7 +76,7 @@ class BashModule(
             if (result.stdout.isNotEmpty()) append(result.stdout)
             if (result.stderr.isNotEmpty()) {
                 if (isNotEmpty() && !endsWith('\n')) append('\n')
-                if (isNotEmpty()) append("[stderr]\n")
+                append("[stderr]\n")
                 append(result.stderr)
             }
             if (result.exitCode != 0) {

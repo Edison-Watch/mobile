@@ -50,6 +50,8 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
 
     private val gattConnections = ConcurrentHashMap<String, GattConnection>()
     private val sppConnections = ConcurrentHashMap<String, SppConnection>()
+    private val lifecycleLock = Any()
+    @Volatile private var closed = false
 
     override val adapterPresent: Boolean get() = adapter != null
 
@@ -70,10 +72,17 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             ) == PackageManager.PERMISSION_GRANTED
 
     override fun close() {
-        gattConnections.values.forEach(GattConnection::close)
-        gattConnections.clear()
-        sppConnections.values.forEach(SppConnection::close)
-        sppConnections.clear()
+        val (gatts, spps) = synchronized(lifecycleLock) {
+            if (closed) return
+            closed = true
+            val openGatts = gattConnections.values.toList()
+            val openSpps = sppConnections.values.toList()
+            gattConnections.clear()
+            sppConnections.clear()
+            openGatts to openSpps
+        }
+        gatts.forEach(GattConnection::close)
+        spps.forEach(SppConnection::close)
     }
 
     override fun bondedDevices(): List<BondedDevice> {
@@ -217,10 +226,14 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
     // -- GATT ---------------------------------------------------------------
 
     override fun gattConnect(address: String, timeoutMs: Long): GattServicesResult {
+        if (closed) return GattServicesResult(error = "bluetooth source is closed")
         val device = remoteDevice(address)
             ?: return GattServicesResult(error = "unknown device address: $address")
         // Drop any stale connection to the same device first.
-        gattConnections.remove(address)?.close()
+        synchronized(lifecycleLock) {
+            if (closed) return GattServicesResult(error = "bluetooth source is closed")
+            gattConnections.remove(address)
+        }?.close()
         val conn = GattConnection(address)
         return try {
             val latch = CountDownLatch(1)
@@ -236,7 +249,18 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
                 conn.close()
                 return GattServicesResult(error = "failed to connect to / discover services on $address")
             }
-            gattConnections[address] = conn
+            var replaced: GattConnection? = null
+            val accepted = synchronized(lifecycleLock) {
+                if (closed) false else {
+                    replaced = gattConnections.put(address, conn)
+                    true
+                }
+            }
+            replaced?.close()
+            if (!accepted) {
+                conn.close()
+                return GattServicesResult(error = "bluetooth source was closed while connecting to $address")
+            }
             GattServicesResult(services = readServices(gatt))
         } catch (e: SecurityException) {
             conn.close()
@@ -605,13 +629,17 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
     // -- Classic SPP --------------------------------------------------------
 
     override fun sppConnect(address: String, uuid: String, timeoutMs: Long): BtOpResult {
+        if (closed) return BtOpResult("bluetooth source is closed")
         val device = remoteDevice(address) ?: return BtOpResult("unknown device address: $address")
         val serviceUuid = try {
             UUID.fromString(uuid)
         } catch (_: IllegalArgumentException) {
             return BtOpResult("invalid SPP service UUID: $uuid")
         }
-        sppConnections.remove(address)?.close()
+        synchronized(lifecycleLock) {
+            if (closed) return BtOpResult("bluetooth source is closed")
+            sppConnections.remove(address)
+        }?.close()
         return try {
             val socket = device.createRfcommSocketToServiceRecord(serviceUuid)
             // Discovery makes connect() slow/unreliable; cancel it first (best effort).
@@ -630,7 +658,18 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             }
             val conn = SppConnection(socket)
             conn.startReader()
-            sppConnections[address] = conn
+            var replaced: SppConnection? = null
+            val accepted = synchronized(lifecycleLock) {
+                if (closed) false else {
+                    replaced = sppConnections.put(address, conn)
+                    true
+                }
+            }
+            replaced?.close()
+            if (!accepted) {
+                conn.close()
+                return BtOpResult("bluetooth source was closed while connecting to $address")
+            }
             BtOpResult()
         } catch (e: SecurityException) {
             BtOpResult("bluetooth connect permission denied: ${e.message}")
@@ -692,21 +731,11 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
         service: String,
         characteristic: String,
     ): BluetoothGattCharacteristic? = try {
-        gatt.getService(expandBluetoothUuid(service))?.getCharacteristic(expandBluetoothUuid(characteristic))
+        val serviceUuid = UUID.fromString(canonicalBluetoothUuid(service).orEmpty())
+        val characteristicUuid = UUID.fromString(canonicalBluetoothUuid(characteristic).orEmpty())
+        gatt.getService(serviceUuid)?.getCharacteristic(characteristicUuid)
     } catch (_: IllegalArgumentException) {
         null
-    }
-
-    /** Accept canonical UUIDs plus common 16/32-bit Bluetooth aliases. */
-    private fun expandBluetoothUuid(value: String): UUID {
-        val compact = value.trim().removePrefix("0x").lowercase()
-        val canonical = when {
-            compact.matches(Regex("^[0-9a-f]{1,4}$")) ->
-                "0000${compact.padStart(4, '0')}-0000-1000-8000-00805f9b34fb"
-            compact.matches(Regex("^[0-9a-f]{8}$")) -> "$compact-0000-1000-8000-00805f9b34fb"
-            else -> compact
-        }
-        return UUID.fromString(canonical)
     }
 
     private fun propertyNames(properties: Int): List<String> = buildList {

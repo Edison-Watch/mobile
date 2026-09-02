@@ -1,6 +1,7 @@
 package ai.sealgate.stdiod.mcp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -96,10 +97,28 @@ class MobileCommandRouterTest {
         assertEquals("false", probe.arguments["with_response"]!!.jsonPrimitive.content)
     }
 
+    @Test
+    fun successfulPayloadsAreNotRewrittenAndErrorsUseTheCanonicalCliAlias() {
+        val probe = BluetoothWriteProbe()
+        probe.resultText = """{"reported_tool":"bt_gatt_write"}"""
+        val router = MobileCommandRouter(listOf(probe))
+
+        val success = router.execute("bluetooth", listOf("gatt", "send", "01"))
+        assertEquals("""{"reported_tool":"bt_gatt_write"}""" + "\n", success.stdout)
+
+        probe.isError = true
+        probe.resultText = "call bt_gatt_write first"
+        val failure = router.execute("bluetooth", listOf("gatt", "send", "01"))
+        assertTrue(failure.stderr.contains("call bluetooth gatt write first"))
+        assertFalse(failure.stderr.contains("bluetooth gatt send first"))
+    }
+
     private class BluetoothWriteProbe : BaseMcpModule() {
         override val name = BluetoothModule.NAME
         var toolName: String = ""
         var arguments: JsonObject = JsonObject(emptyMap())
+        var resultText: String = "{}"
+        var isError: Boolean = false
 
         override fun toolDescriptors(): JsonElement = buildJsonArray {
             listOf("bt_gatt_write", "bt_gatt_write_sequence").forEach { descriptorName ->
@@ -130,7 +149,7 @@ class MobileCommandRouterTest {
         override fun callTool(id: JsonElement, toolName: String, arguments: JsonObject): JsonObject {
             this.toolName = toolName
             this.arguments = arguments
-            return JsonRpc.textToolResult(id, "{}")
+            return JsonRpc.textToolResult(id, resultText, isError)
         }
     }
 

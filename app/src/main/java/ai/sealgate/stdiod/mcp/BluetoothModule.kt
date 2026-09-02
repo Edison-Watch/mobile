@@ -101,6 +101,18 @@ data class GattNotification(
 /** Result of `bt_gatt_request_mtu`; [mtu] is the negotiated ATT MTU. */
 data class GattMtuResult(val mtu: Int = 0, val error: String? = null)
 
+/** Accept canonical UUIDs plus the 16/32-bit aliases commonly printed by BLE tools. */
+internal fun canonicalBluetoothUuid(raw: String): String? {
+    val compact = raw.trim().removePrefix("0x").lowercase()
+    val canonical = when {
+        compact.matches(Regex("^[0-9a-f]{1,4}$")) ->
+            "0000${compact.padStart(4, '0')}-0000-1000-8000-00805f9b34fb"
+        compact.matches(Regex("^[0-9a-f]{8}$")) -> "$compact-0000-1000-8000-00805f9b34fb"
+        else -> compact
+    }
+    return runCatching { java.util.UUID.fromString(canonical).toString() }.getOrNull()
+}
+
 /**
  * Result of `bt_gatt_subscribe`. [mode] is the concrete mode actually used
  * (`notify`/`indicate`), which matters when the caller asked for `auto`.
@@ -627,9 +639,10 @@ class BluetoothModule(
     private fun btGattRead(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
         val address = gattAddress(arguments) ?: return invalidGattAddress(id, arguments)
-        val serviceRaw = stringArg(arguments, "service") ?: gattDefaults?.service
+        val defaults = gattDefaultsFor(address)
+        val serviceRaw = stringArg(arguments, "service") ?: defaults?.service
             ?: return err(id, "missing required argument: service (no last-used GATT service is available)")
-        val characteristicRaw = stringArg(arguments, "characteristic") ?: gattDefaults?.characteristic
+        val characteristicRaw = stringArg(arguments, "characteristic") ?: defaults?.characteristic
             ?: return err(id, "missing required argument: characteristic (no last-used GATT characteristic is available)")
         val service = canonicalGattUuid(serviceRaw) ?: return err(id, "invalid service UUID: $serviceRaw")
         val characteristic = canonicalGattUuid(characteristicRaw)
@@ -650,9 +663,10 @@ class BluetoothModule(
     private fun btGattWrite(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
         val address = gattAddress(arguments) ?: return invalidGattAddress(id, arguments)
-        val serviceRaw = stringArg(arguments, "service") ?: gattDefaults?.service
+        val defaults = gattDefaultsFor(address)
+        val serviceRaw = stringArg(arguments, "service") ?: defaults?.service
             ?: return err(id, "missing required argument: service (no last-used GATT service is available)")
-        val characteristicRaw = stringArg(arguments, "characteristic") ?: gattDefaults?.characteristic
+        val characteristicRaw = stringArg(arguments, "characteristic") ?: defaults?.characteristic
             ?: return err(id, "missing required argument: characteristic (no last-used GATT characteristic is available)")
         val service = canonicalGattUuid(serviceRaw) ?: return err(id, "invalid service UUID: $serviceRaw")
         val characteristic = canonicalGattUuid(characteristicRaw)
@@ -680,9 +694,10 @@ class BluetoothModule(
     private fun btGattWriteSequence(id: JsonElement, arguments: JsonObject): JsonObject {
         preflight(id)?.let { return it }
         val address = gattAddress(arguments) ?: return invalidGattAddress(id, arguments)
-        val serviceRaw = stringArg(arguments, "service") ?: gattDefaults?.service
+        val defaults = gattDefaultsFor(address)
+        val serviceRaw = stringArg(arguments, "service") ?: defaults?.service
             ?: return err(id, "missing required argument: service (no last-used GATT service is available)")
-        val characteristicRaw = stringArg(arguments, "characteristic") ?: gattDefaults?.characteristic
+        val characteristicRaw = stringArg(arguments, "characteristic") ?: defaults?.characteristic
             ?: return err(id, "missing required argument: characteristic (no last-used GATT characteristic is available)")
         val service = canonicalGattUuid(serviceRaw) ?: return err(id, "invalid service UUID: $serviceRaw")
         val characteristic = canonicalGattUuid(characteristicRaw)
@@ -708,11 +723,11 @@ class BluetoothModule(
             )
         }
         val negotiatedMtu = gattDefaults?.takeIf { it.address == address }?.negotiatedMtu
-        val maxPacketBytes = negotiatedMtu?.minus(3) ?: ABSOLUTE_MAX_GATT_VALUE_BYTES
+        val maxPacketBytes = negotiatedMtu?.minus(3) ?: DEFAULT_GATT_VALUE_BYTES
         frames.forEachIndexed { frameIndex, frame ->
             frame.packets.forEachIndexed { packetIndex, packet ->
                 if (packet.size > maxPacketBytes) {
-                    val mtuContext = negotiatedMtu?.let { "negotiated MTU $it" } ?: "BLE maximum"
+                    val mtuContext = negotiatedMtu?.let { "negotiated MTU $it" } ?: "default ATT MTU $MIN_MTU"
                     return err(
                         id,
                         "frame $frameIndex packet $packetIndex is ${packet.size} bytes; " +
@@ -1111,6 +1126,9 @@ class BluetoothModule(
         gattDefaults = GattDefaults(address, service, characteristic, mtu)
     }
 
+    private fun gattDefaultsFor(address: String): GattDefaults? =
+        gattDefaults?.takeIf { it.address == address }
+
     private fun parseGattSequence(raw: String): ParsedGattSequence {
         val root = try {
             Json.parseToJsonElement(raw).jsonArray
@@ -1197,16 +1215,7 @@ class BluetoothModule(
         isError = true,
     )
 
-    private fun canonicalGattUuid(raw: String): String? {
-        val compact = raw.trim().removePrefix("0x").lowercase()
-        val canonical = when {
-            compact.matches(Regex("^[0-9a-f]{1,4}$")) ->
-                "0000${compact.padStart(4, '0')}-0000-1000-8000-00805f9b34fb"
-            compact.matches(Regex("^[0-9a-f]{8}$")) -> "$compact-0000-1000-8000-00805f9b34fb"
-            else -> compact
-        }
-        return runCatching { java.util.UUID.fromString(canonical).toString() }.getOrNull()
-    }
+    private fun canonicalGattUuid(raw: String): String? = canonicalBluetoothUuid(raw)
 
     private data class GattDefaults(
         val address: String,
@@ -1309,7 +1318,7 @@ class BluetoothModule(
         private const val MIN_MTU = 23
         private const val MAX_MTU = 517
 
-        private const val ABSOLUTE_MAX_GATT_VALUE_BYTES = 514
+        private const val DEFAULT_GATT_VALUE_BYTES = MIN_MTU - 3
         private const val MAX_SEQUENCE_FRAMES = 64
         private const val MAX_PACKETS_PER_FRAME = 64
         private const val MAX_SEQUENCE_WRITES = 256

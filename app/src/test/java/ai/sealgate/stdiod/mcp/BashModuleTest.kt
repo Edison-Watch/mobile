@@ -42,6 +42,15 @@ class BashModuleTest {
     }
 
     @Test
+    fun labelsStderrWhenThereIsNoStdout() {
+        val module = BashModule(runtimeFactory = { FakeRuntime(BashExecutionResult("", "only stderr\n", 1)) })
+        val called = module.handle(request(30, "tools/call", """{"name":"run","arguments":{"script":"bad"}}"""))!!
+        val text = called["result"]!!.jsonObject["content"]!!.jsonArray.single().jsonObject["text"]!!.jsonPrimitive.content
+
+        assertTrue(text.startsWith("[stderr]\nonly stderr\n"))
+    }
+
+    @Test
     fun rejectsOversizedScriptsBeforeStartingRuntime() {
         var created = false
         val module = BashModule(runtimeFactory = {

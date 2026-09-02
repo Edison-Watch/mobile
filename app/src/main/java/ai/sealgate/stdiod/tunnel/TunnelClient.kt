@@ -15,7 +15,9 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
+import kotlin.concurrent.thread
 import kotlin.random.Random
 
 /** Who this device says it is in `client_hello`. */
@@ -64,7 +66,7 @@ class TunnelClient(
 
     private var loopJob: Job? = null
     private var webSocket: WebSocket? = null
-    private var modulesClosed = false
+    private val modulesClosed = AtomicBoolean(false)
 
     fun start() {
         if (loopJob?.isActive == true) return
@@ -76,10 +78,15 @@ class TunnelClient(
         loopJob = null
         webSocket?.close(NORMAL_CLOSURE, "client stopping")
         webSocket = null
-        if (!modulesClosed) {
-            modulesClosed = true
-            modulesByName.values.filterIsInstance<AutoCloseable>().forEach { module ->
-                runCatching(module::close).onFailure { Log.w(TAG, "failed to close module ${module.javaClass.simpleName}", it) }
+        if (modulesClosed.compareAndSet(false, true)) {
+            // A QuickJS evaluation may hold its runtime lock until the 60-second
+            // execution limit. Never make the service/main thread wait for it.
+            thread(start = true, isDaemon = true, name = "mobile-mcp-close") {
+                modulesByName.values.filterIsInstance<AutoCloseable>().forEach { module ->
+                    runCatching(module::close).onFailure {
+                        Log.w(TAG, "failed to close module ${module.javaClass.simpleName}", it)
+                    }
+                }
             }
         }
         _state.value = TunnelState.Disconnected

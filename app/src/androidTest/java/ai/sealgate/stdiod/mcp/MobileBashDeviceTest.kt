@@ -78,7 +78,9 @@ class MobileBashDeviceTest {
         val arguments = InstrumentationRegistry.getArguments()
         val encodedScript = arguments.getString("mobile_bash_script_base64").orEmpty()
         val script = if (encodedScript.isNotBlank()) {
-            String(Base64.decode(encodedScript, Base64.DEFAULT), Charsets.UTF_8)
+            val decoded = runCatching { Base64.decode(encodedScript, Base64.DEFAULT) }.getOrNull()
+            assumeTrue("mobile_bash_script_base64 was not valid Base64", decoded != null)
+            String(decoded!!, Charsets.UTF_8)
         } else {
             arguments.getString("mobile_bash_script").orEmpty()
         }

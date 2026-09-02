@@ -10,36 +10,44 @@ const port = Number(process.env.MOBILE_BASH_E2E_PORT ?? "8765");
 const expectedToken = process.env.MOBILE_BASH_E2E_TOKEN ?? "e2e-token";
 
 let completed = false;
+const sockets = new Set();
 const fail = (message) => {
   console.error(`E2E FAILED: ${message}`);
   process.exitCode = 1;
 };
 
-function encodeTextFrame(value) {
-  const payload = Buffer.from(JSON.stringify(value));
+function encodeFrame(payload, opcode = 0x1) {
+  payload = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
   let header;
   if (payload.length < 126) {
-    header = Buffer.from([0x81, payload.length]);
+    header = Buffer.from([0x80 | opcode, payload.length]);
   } else if (payload.length <= 0xffff) {
     header = Buffer.alloc(4);
-    header[0] = 0x81;
+    header[0] = 0x80 | opcode;
     header[1] = 126;
     header.writeUInt16BE(payload.length, 2);
   } else {
     header = Buffer.alloc(10);
-    header[0] = 0x81;
+    header[0] = 0x80 | opcode;
     header[1] = 127;
     header.writeBigUInt64BE(BigInt(payload.length), 2);
   }
   return Buffer.concat([header, payload]);
 }
 
-function frameDecoder(onText) {
+function encodeTextFrame(value) {
+  return encodeFrame(Buffer.from(JSON.stringify(value)));
+}
+
+function frameDecoder(onText, onClose, onControl) {
   let buffered = Buffer.alloc(0);
+  let fragmentedOpcode = null;
+  let fragments = [];
   return (chunk) => {
     buffered = Buffer.concat([buffered, chunk]);
     while (buffered.length >= 2) {
       const first = buffered[0];
+      const final = (first & 0x80) !== 0;
       const second = buffered[1];
       const opcode = first & 0x0f;
       const masked = (second & 0x80) !== 0;
@@ -65,8 +73,28 @@ function frameDecoder(onText) {
       if (mask) {
         for (let i = 0; i < payload.length; i += 1) payload[i] ^= mask[i % 4];
       }
-      if (opcode === 0x1) onText(payload.toString("utf8"));
-      if (opcode === 0x8) return;
+      if (opcode === 0x8) { onClose(payload); return; }
+      if (opcode === 0x9) { onControl(0xA, payload); continue; }
+      if (opcode === 0xA) continue;
+      if (opcode === 0x0) {
+        if (fragmentedOpcode === null) throw new Error("unexpected continuation frame");
+        fragments.push(payload);
+        if (final) {
+          const complete = Buffer.concat(fragments);
+          if (fragmentedOpcode === 0x1) onText(complete.toString("utf8"));
+          fragmentedOpcode = null;
+          fragments = [];
+        }
+        continue;
+      }
+      if (opcode !== 0x1 && opcode !== 0x2) throw new Error(`unsupported WebSocket opcode ${opcode}`);
+      if (fragmentedOpcode !== null) throw new Error("new data frame received before fragmented message completed");
+      if (final) {
+        if (opcode === 0x1) onText(payload.toString("utf8"));
+      } else {
+        fragmentedOpcode = opcode;
+        fragments = [payload];
+      }
     }
   };
 }
@@ -77,6 +105,11 @@ const server = http.createServer((_request, response) => {
 });
 
 server.on("upgrade", (request, socket, head) => {
+  sockets.add(socket);
+  socket.once("close", () => sockets.delete(socket));
+  socket.on("error", (error) => {
+    if (!completed) fail(`WebSocket error: ${error.message}`);
+  });
   if (request.headers.authorization !== `Bearer ${expectedToken}`) {
     fail("Bearer token was not forwarded by the app");
     socket.end("HTTP/1.1 401 Unauthorized\r\n\r\n");
@@ -175,22 +208,36 @@ server.on("upgrade", (request, socket, head) => {
       if (response.result?.isError !== true) return fail("Android filesystem escape was not rejected");
       completed = true;
       console.log("E2E PASSED: one-tool Mobile Bash tunnel, MCP lifecycle, composable shell, run-scoped files, Android battery bridge, and filesystem isolation");
-      socket.end();
+      clearTimeout(timeout);
+      socket.end(encodeFrame(Buffer.from([0x03, 0xe8]), 0x8));
       server.close();
     }
   };
 
-  const decode = frameDecoder(onMessage);
-  socket.on("data", decode);
-  if (head.length > 0) decode(head);
+  const decode = frameDecoder(
+    onMessage,
+    (payload) => socket.end(encodeFrame(payload, 0x8)),
+    (opcode, payload) => socket.write(encodeFrame(payload, opcode)),
+  );
+  const safelyDecode = (chunk) => {
+    try {
+      decode(chunk);
+    } catch (error) {
+      fail(`invalid WebSocket payload: ${error.message}`);
+      socket.destroy();
+    }
+  };
+  socket.on("data", safelyDecode);
+  if (head.length > 0) safelyDecode(head);
 });
 
 server.listen(port, "127.0.0.1", () => {
   console.log(`Mobile Bash E2E gateway listening on ws://127.0.0.1:${port}`);
 });
 
-setTimeout(() => {
+const timeout = setTimeout(() => {
   if (completed) return;
   fail("timed out waiting for the Android tunnel");
+  for (const socket of sockets) socket.destroy();
   server.close();
 }, 90_000).unref();
