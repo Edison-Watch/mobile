@@ -9,18 +9,31 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.atomic.AtomicLong
 
 /** Result contract consumed by a just-bash custom command. */
 data class ShellCommandResult(
     val stdout: String = "",
     val stderr: String = "",
     val exitCode: Int = 0,
+    val supplementToken: String? = null,
 ) {
     fun toJson(): String = buildJsonObject {
         put("stdout", JsonPrimitive(stdout))
         put("stderr", JsonPrimitive(stderr))
         put("exitCode", JsonPrimitive(exitCode))
+        supplementToken?.let { put("supplementToken", JsonPrimitive(it)) }
     }.toString()
+}
+
+/** Typed MCP data retained outside QuickJS while its opaque token crosses the shell bridge. */
+data class MobileCommandSupplement(
+    val content: List<JsonObject>,
+    val structuredContent: JsonObject?,
+) {
+    fun serializedBytes(): Long =
+        content.sumOf { it.toString().toByteArray(Charsets.UTF_8).size.toLong() } +
+            (structuredContent?.toString()?.toByteArray(Charsets.UTF_8)?.size?.toLong() ?: 0L)
 }
 
 /**
@@ -35,6 +48,10 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
             descriptor.jsonObject["name"]!!.jsonPrimitive.content to descriptor.jsonObject
         }
     }.toMap()
+    private val nextSupplementId = AtomicLong()
+    private val supplementLock = Any()
+    private val supplements = LinkedHashMap<String, MobileCommandSupplement>()
+    private var pendingSupplementBytes = 0L
 
     init {
         val mappedTools = SPECS.map(CommandSpec::tool).toSet()
@@ -98,19 +115,56 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
             return fail("$namespace: $message")
         }
         val isError = result["isError"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true
-        val rawText = result["content"]?.jsonArray
-            ?.firstOrNull()
-            ?.jsonObject
-            ?.get("text")
-            ?.jsonPrimitive
-            ?.content
-            .orEmpty()
+        val content = result["content"]?.jsonArray.orEmpty().mapNotNull { it as? JsonObject }
+        val rawText = content
+            .filter { it["type"]?.jsonPrimitive?.content == "text" }
+            .mapNotNull { it["text"]?.jsonPrimitive?.content }
+            .joinToString("\n")
+        val typedContent = content.filter { it["type"]?.jsonPrimitive?.content != "text" }
+        val structuredContent = result["structuredContent"] as? JsonObject
+        val supplementToken = if (typedContent.isNotEmpty() || structuredContent != null) {
+            retainSupplement(MobileCommandSupplement(typedContent, structuredContent))
+        } else {
+            null
+        }
         val text = if (isError) rawText.useCliNames() else rawText
         return if (isError) {
-            ShellCommandResult(stderr = text.ensureTrailingNewline(), exitCode = 1)
+            ShellCommandResult(stderr = text.ensureTrailingNewline(), exitCode = 1, supplementToken = supplementToken)
         } else {
-            ShellCommandResult(stdout = text.ensureTrailingNewline())
+            ShellCommandResult(stdout = text.ensureTrailingNewline(), supplementToken = supplementToken)
         }
+    }
+
+    fun clearSupplements() = synchronized(supplementLock) {
+        supplements.clear()
+        pendingSupplementBytes = 0L
+    }
+
+    fun availableNamespacesJson(): String = buildJsonArray {
+        SPECS.asSequence()
+            .filter { descriptorsByTool.containsKey(it.tool) }
+            .map(CommandSpec::namespace)
+            .distinct()
+            .forEach { add(JsonPrimitive(it)) }
+    }.toString()
+
+    fun takeSupplements(tokens: List<String>): List<MobileCommandSupplement> = synchronized(supplementLock) {
+        tokens.mapNotNull(supplements::remove).also {
+            supplements.clear()
+            pendingSupplementBytes = 0L
+        }
+    }
+
+    private fun retainSupplement(supplement: MobileCommandSupplement): String = synchronized(supplementLock) {
+        check(supplements.size < MAX_PENDING_SUPPLEMENTS) { "too many pending mobile command attachments" }
+        val supplementBytes = supplement.serializedBytes()
+        check(supplementBytes <= MAX_PENDING_SUPPLEMENT_BYTES - pendingSupplementBytes) {
+            "pending mobile command attachments exceed 4 MiB"
+        }
+        val token = nextSupplementId.incrementAndGet().toString()
+        supplements[token] = supplement
+        pendingSupplementBytes += supplementBytes
+        token
     }
 
     private fun parseArguments(
@@ -251,6 +305,8 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
         .fold(this) { text, (tool, cli) -> text.replace(tool, cli) }
 
     companion object {
+        private const val MAX_PENDING_SUPPLEMENTS = 64
+        internal const val MAX_PENDING_SUPPLEMENT_BYTES = 4L * 1024L * 1024L
         private val BashJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
         private fun spec(
@@ -292,6 +348,14 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
             spec("usb", "bulk-transfer", "usb", "usb_bulk_transfer", "device_name"),
             spec("usb", "control-transfer", "usb", "usb_control_transfer", "device_name"),
             spec("usb", "close", "usb", "usb_close", "device_name"),
+            spec("computer", "status", "computer", "computer_status"),
+            spec("computer", "observe", "computer", "computer_observe"),
+            spec("computer", "click", "computer", "computer_click", "node_id"),
+            spec("computer", "set-text", "computer", "computer_set_text", "node_id", "text"),
+            spec("computer", "tap", "computer", "computer_tap", "x", "y"),
+            spec("computer", "swipe", "computer", "computer_swipe", "start_x", "start_y", "end_x", "end_y"),
+            spec("computer", "global", "computer", "computer_global", "action"),
+            spec("computer", "open", "computer", "computer_open_app", "package_name"),
         )
 
         private val CLI_BY_TOOL = buildMap {

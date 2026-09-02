@@ -2,6 +2,7 @@ package ai.sealgate.stdiod.mcp
 
 import android.util.Log
 import android.util.Base64
+import ai.sealgate.stdiod.BuildConfig
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -20,13 +21,7 @@ class MobileBashDeviceTest {
     @Test
     fun packagedRuntimeCallsRealAndroidCapabilitiesInOneVirtualSession() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val modules = listOf(
-            DeviceInfoModule(AndroidDeviceInfo),
-            BatteryModule(AndroidBatterySource(context)),
-            WifiModule(AndroidWifiSource(context)),
-            BluetoothModule(AndroidBluetoothSource(context)),
-            UsbModule(AndroidUsbSource(context)),
-        )
+        val modules = deviceModules(context)
         val source = context.assets.open("mobile-bash-runtime.js").bufferedReader().use { it.readText() }
         val runtime = QuickJsMobileBashRuntime({ source }, MobileCommandRouter(modules))
         try {
@@ -87,13 +82,7 @@ class MobileBashDeviceTest {
         assumeTrue("mobile_bash_script or mobile_bash_script_base64 was not provided", script.isNotBlank())
 
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val modules = listOf(
-            DeviceInfoModule(AndroidDeviceInfo),
-            BatteryModule(AndroidBatterySource(context)),
-            WifiModule(AndroidWifiSource(context)),
-            BluetoothModule(AndroidBluetoothSource(context)),
-            UsbModule(AndroidUsbSource(context)),
-        )
+        val modules = deviceModules(context)
         val source = context.assets.open("mobile-bash-runtime.js").bufferedReader().use { it.readText() }
         val runtime = QuickJsMobileBashRuntime({ source }, MobileCommandRouter(modules))
         try {
@@ -108,5 +97,14 @@ class MobileBashDeviceTest {
 
     companion object {
         private const val SMOKE_TAG = "MobileBashSmoke"
+
+        private fun deviceModules(context: android.content.Context): List<BaseMcpModule> = buildList {
+            add(DeviceInfoModule(AndroidDeviceInfo))
+            add(BatteryModule(AndroidBatterySource(context)))
+            add(WifiModule(AndroidWifiSource(context)))
+            add(BluetoothModule(AndroidBluetoothSource(context)))
+            add(UsbModule(AndroidUsbSource(context)))
+            if (BuildConfig.COMPUTER_USE_AVAILABLE) add(ComputerModule(AndroidComputerSource(context)))
+        }
     }
 }

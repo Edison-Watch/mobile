@@ -1,10 +1,13 @@
 package ai.sealgate.stdiod
 
 import android.Manifest
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import ai.sealgate.stdiod.databinding.ActivityMainBinding
 import ai.sealgate.stdiod.tunnel.TunnelState
+import ai.sealgate.stdiod.mcp.ComputerAccessibilityService
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -30,6 +34,17 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var tunnelState: TunnelState? = null
+    private var syncingComputerControlSwitch = false
+    private val computerUsePreferenceListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (
+                key == ComputerUseSettings.KEY_ENABLED &&
+                BuildConfig.COMPUTER_USE_AVAILABLE &&
+                ::binding.isInitialized
+            ) {
+                renderComputerControl()
+            }
+        }
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -54,6 +69,23 @@ class MainActivity : AppCompatActivity() {
         binding.gatewayUrlInput.setText(stored.gatewayUrl)
         binding.apiKeyInput.setText(stored.authToken)
         binding.settingsPanel.visibility = if (stored.isValid()) View.GONE else View.VISIBLE
+
+        binding.computerControlPanel.visibility =
+            if (BuildConfig.COMPUTER_USE_AVAILABLE) View.VISIBLE else View.GONE
+        if (BuildConfig.COMPUTER_USE_AVAILABLE) {
+            binding.computerControlSwitch.isChecked = ComputerUseSettings.isEnabled(this)
+            binding.computerControlSwitch.setOnCheckedChangeListener { _, enabled ->
+                if (syncingComputerControlSwitch) return@setOnCheckedChangeListener
+                ComputerUseSettings.setEnabled(this, enabled)
+                if (!enabled) ComputerAccessibilityService.disable()
+                if (TunnelServiceState.state.value != null) TunnelService.refreshComputerControl(this)
+                renderComputerControl()
+                if (enabled && !ComputerAccessibilityService.isConnected()) {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+            }
+            renderComputerControl()
+        }
 
         binding.swipeRefresh.setColorSchemeResources(R.color.core_cyan)
         binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.baseline_black)
@@ -143,6 +175,47 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (BuildConfig.COMPUTER_USE_AVAILABLE && ::binding.isInitialized) renderComputerControl()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (BuildConfig.COMPUTER_USE_AVAILABLE) {
+            ComputerUseSettings.preferences(this)
+                .registerOnSharedPreferenceChangeListener(computerUsePreferenceListener)
+            renderComputerControl()
+        }
+    }
+
+    override fun onStop() {
+        if (BuildConfig.COMPUTER_USE_AVAILABLE) {
+            ComputerUseSettings.preferences(this)
+                .unregisterOnSharedPreferenceChangeListener(computerUsePreferenceListener)
+        }
+        super.onStop()
+    }
+
+    private fun renderComputerControl() {
+        val enabled = ComputerUseSettings.isEnabled(this)
+        if (binding.computerControlSwitch.isChecked != enabled) {
+            syncingComputerControlSwitch = true
+            try {
+                binding.computerControlSwitch.isChecked = enabled
+            } finally {
+                syncingComputerControlSwitch = false
+            }
+        }
+        binding.computerControlStatus.setText(
+            when {
+                !enabled -> R.string.computer_control_off
+                ComputerAccessibilityService.isConnected() -> R.string.computer_control_ready
+                else -> R.string.computer_control_needs_accessibility
+            },
+        )
     }
 
     private fun renderState(state: TunnelState?, text: String) {

@@ -31,8 +31,8 @@ bluetooth scan --timeout-ms 5000 > /tmp/scan.json
 jq '.devices[] | select(.rssi > -70)' /tmp/scan.json
 ```
 
-Run `device --help`, `battery --help`, `wifi --help`, `bluetooth --help`, or
-`usb --help` to discover the Android CLI. It delegates to the same Kotlin
+Run `device --help`, `battery --help`, `wifi --help`, `bluetooth --help`,
+`usb --help`, or (in non-Play builds) `computer --help` to discover the Android CLI. It delegates to the same Kotlin
 capability modules, including Bluetooth and USB control operations, so Android runtime
 permissions and on-device permission dialogs still apply.
 
@@ -43,6 +43,15 @@ permissions and on-device permission dialogs still apply.
 | `wifi` | Wi-Fi connection status. |
 | `bluetooth` | BLE + classic Bluetooth: status, scan, GATT read/write, notify/indicate, RFCOMM/SPP, and pairing. |
 | `usb` | USB-OTG host access: enumerate devices, request permission, and raw bulk/control transfers. |
+| `computer` | Optional private-build cross-app observation and control, returning an MCP image and accessibility tree together. |
+
+Computer control is compiled into debug, private, and enterprise builds only;
+the Play/release manifest contains no accessibility service. It defaults off
+and requires both the in-app toggle and explicit activation in Android's
+Accessibility settings. `computer observe` and post-action results carry the
+screenshot as native MCP image content and the matching accessibility tree as
+structured content. The 1 MiB Bash output limit remains separate from a bounded
+4 MiB typed MCP result.
 
 The virtual filesystem is shared across calls for one tunnel run and destroyed
 when that run stops. Shell-local variables, functions, aliases, and working

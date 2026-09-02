@@ -23,13 +23,40 @@ android {
             // Install alongside signed/release builds during live device testing.
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            buildConfigField("boolean", "COMPUTER_USE_AVAILABLE", "true")
         }
         release {
+            // Google Play build: the accessibility service is not merged into
+            // the manifest and the capability is never registered.
+            buildConfigField("boolean", "COMPUTER_USE_AVAILABLE", "false")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        create("private") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".private"
+            versionNameSuffix = "-private"
+            matchingFallbacks += "release"
+            buildConfigField("boolean", "COMPUTER_USE_AVAILABLE", "true")
+        }
+        create("enterprise") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".enterprise"
+            versionNameSuffix = "-enterprise"
+            matchingFallbacks += "release"
+            buildConfigField("boolean", "COMPUTER_USE_AVAILABLE", "true")
+        }
+    }
+
+    sourceSets {
+        listOf("debug", "private", "enterprise").forEach { buildType ->
+            getByName(buildType).apply {
+                manifest.srcFile("src/computerUse/AndroidManifest.xml")
+                res.directories.add("src/computerUse/res")
+            }
         }
     }
 

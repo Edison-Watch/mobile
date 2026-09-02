@@ -16,12 +16,14 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 
 data class BashExecutionResult(
     val stdout: String,
     val stderr: String,
     val exitCode: Int,
+    val supplements: List<MobileCommandSupplement> = emptyList(),
 )
 
 interface MobileBashRuntime : AutoCloseable {
@@ -39,6 +41,7 @@ class QuickJsMobileBashRuntime(
     private var completedResult: String? = null
 
     override fun execute(script: String): BashExecutionResult = lock.withLock {
+        commandRouter.clearSupplements()
         try {
             runBlocking {
                 withTimeout(EXECUTION_TIMEOUT_MILLIS) {
@@ -54,10 +57,14 @@ class QuickJsMobileBashRuntime(
             val encoded = completedResult
                 ?: return@withLock BashExecutionResult("", "bash: runtime returned no result\n", 1)
             val result = Json.parseToJsonElement(encoded).jsonObject
+            val tokens = result["supplementTokens"]?.jsonArray
+                ?.map { it.jsonPrimitive.content }
+                .orEmpty()
             BashExecutionResult(
                 stdout = result["stdout"]?.jsonPrimitive?.content.orEmpty(),
                 stderr = result["stderr"]?.jsonPrimitive?.content.orEmpty(),
                 exitCode = result["exitCode"]?.jsonPrimitive?.content?.toIntOrNull() ?: 1,
+                supplements = commandRouter.takeSupplements(tokens),
             )
         } catch (_: TimeoutCancellationException) {
             // Cancellation interrupts QuickJS evaluation. Discard the engine so
@@ -65,10 +72,13 @@ class QuickJsMobileBashRuntime(
             quickJs?.close()
             quickJs = null
             completedResult = null
+            commandRouter.clearSupplements()
             BashExecutionResult("", "bash: execution exceeded 60 seconds\n", 124)
         } catch (error: QuickJsException) {
+            commandRouter.clearSupplements()
             BashExecutionResult("", "bash: ${error.message?.lineSequence()?.firstOrNull() ?: "runtime error"}\n", 1)
         } catch (error: Exception) {
+            commandRouter.clearSupplements()
             BashExecutionResult("", "bash: ${error.message ?: "runtime error"}\n", 1)
         }
     }
@@ -92,6 +102,10 @@ class QuickJsMobileBashRuntime(
         try {
             runBlocking {
                 created.evaluate<Any?>(POLYFILLS, filename = "mobile-polyfills.js")
+                created.evaluate<Any?>(
+                    "globalThis.__mobileHostNamespaces = Object.freeze(${commandRouter.availableNamespacesJson()});",
+                    filename = "mobile-capabilities.js",
+                )
                 created.evaluate<Any?>(sourceProvider(), filename = "mobile-bash-runtime.js")
             }
         } catch (error: Exception) {

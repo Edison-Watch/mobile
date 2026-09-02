@@ -63,7 +63,10 @@ function hostCommand(namespace) {
   return defineCommand(namespace, async (args) => {
     try {
       const encoded = globalThis.__mobileCommand(JSON.stringify({ namespace, args }));
-      return JSON.parse(encoded);
+      const result = JSON.parse(encoded);
+      if (result.supplementToken) globalThis.__mobileSupplements.push(result.supplementToken);
+      delete result.supplementToken;
+      return result;
     } catch (error) {
       return {
         stdout: "",
@@ -142,7 +145,7 @@ globalThis.__mobileBash = new Bash({
   },
   commands: SAFE_COMMANDS,
   customCommands: [
-    ...["device", "battery", "wifi", "bluetooth", "usb"].map(hostCommand),
+    ...globalThis.__mobileHostNamespaces.map(hostCommand),
     ...BLOCKED_COMMANDS.map(blockedCommand),
     sleepCommand(),
   ],
@@ -173,10 +176,12 @@ globalThis.__mobileBash = new Bash({
 });
 
 globalThis.__mobileBashExec = async script => {
+  globalThis.__mobileSupplements = [];
   const result = await globalThis.__mobileBash.exec(script);
   return JSON.stringify({
     stdout: result.stdout,
     stderr: result.stderr,
     exitCode: result.exitCode,
+    supplementTokens: globalThis.__mobileSupplements,
   });
 };

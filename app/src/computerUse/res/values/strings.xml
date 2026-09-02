@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="computer_accessibility_label">Mobile Tunnel computer control</string>
+    <string name="computer_accessibility_summary">Allows an authorized private Mobile Bash session to observe and control visible Android apps.</string>
+    <string name="computer_accessibility_description">When computer control is enabled in Mobile Tunnel, this service can return screenshots and accessibility trees and can interact with visible apps. Available only in private, enterprise, and developer builds.</string>
+</resources>
