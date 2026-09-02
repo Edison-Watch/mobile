@@ -6,12 +6,16 @@ import ai.sealgate.stdiod.mcp.MobileBashRuntime
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExecutionLogStoreTest {
+    @Before
+    fun setUp() = ExecutionLogStore.clear()
+
     @After
     fun tearDown() = ExecutionLogStore.clear()
 
