@@ -71,6 +71,11 @@ class BashModule(
                 isError = true,
             )
         }
+        val contentBudget = (MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES).toLong() -
+            id.toString().toByteArray(Charsets.UTF_8).size.toLong()
+        if (contentBudget <= serializedTextBytes(OUTPUT_TRUNCATED_NOTICE)) {
+            return JsonRpc.error(JsonNull, INVALID_REQUEST, "request id is too large")
+        }
 
         val result = runtime.execute(script)
         val text = buildString {
@@ -86,11 +91,6 @@ class BashModule(
             } else if (isEmpty()) {
                 append("Command completed successfully.")
             }
-        }
-        val contentBudget = (MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES).toLong() -
-            id.toString().toByteArray(Charsets.UTF_8).size.toLong()
-        if (contentBudget <= serializedTextBytes(OUTPUT_TRUNCATED_NOTICE)) {
-            return JsonRpc.error(JsonNull, INVALID_REQUEST, "request id is too large")
         }
         val fittedText = fitTextToResultBudget(
             text = text,

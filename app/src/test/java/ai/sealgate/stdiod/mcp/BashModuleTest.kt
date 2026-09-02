@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -178,6 +179,29 @@ class BashModuleTest {
         assertTrue(text.contains("[output truncated: MCP result exceeds 4 MiB]"))
         assertTrue(text.endsWith("[stderr]\ncritical failure\n[exit code: 9]"))
         assertTrue(called.toString().toByteArray(Charsets.UTF_8).size <= BashModule.MAX_MCP_RESULT_BYTES)
+    }
+
+    @Test
+    fun rejectsAnUnrepresentableRequestIdBeforeExecutingTheScript() {
+        val runtime = FakeRuntime(BashExecutionResult("should not run", "", 0))
+        val message = buildJsonObject {
+            put("jsonrpc", JsonPrimitive("2.0"))
+            put("id", JsonPrimitive("i".repeat(BashModule.MAX_MCP_RESULT_BYTES)))
+            put("method", JsonPrimitive("tools/call"))
+            put(
+                "params",
+                buildJsonObject {
+                    put("name", JsonPrimitive("run"))
+                    put("arguments", buildJsonObject { put("script", JsonPrimitive("computer global home")) })
+                },
+            )
+        }
+
+        val response = BashModule(runtimeFactory = { runtime }).handle(message)!!
+
+        assertEquals(JsonNull, response["id"])
+        assertTrue(response["error"]!!.jsonObject["message"]!!.jsonPrimitive.content.contains("request id is too large"))
+        assertEquals(null, runtime.lastScript)
     }
 
     private class FakeRuntime(private val result: BashExecutionResult) : MobileBashRuntime {
