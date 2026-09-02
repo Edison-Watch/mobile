@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ComputerModuleTest {
@@ -43,16 +44,56 @@ class ComputerModuleTest {
         assertEquals("obs_1", supplement.structuredContent!!["observationId"]!!.jsonPrimitive.content)
     }
 
+    @Test
+    fun nonPrimitiveCoordinatesReturnAnInBandError() {
+        val response = ComputerModule(FakeComputerSource()).handle(
+            request("computer_tap", """{"x":{},"y":20}"""),
+        )!!["result"]!!.jsonObject
+
+        assertTrue(response["isError"]!!.jsonPrimitive.content.toBoolean())
+        assertTrue(response["content"]!!.jsonArray.single().jsonObject["text"]!!.jsonPrimitive.content.contains("x is required"))
+    }
+
+    @Test
+    fun nonPrimitiveOptionalDurationUsesTheDocumentedDefault() {
+        val source = FakeComputerSource()
+        val response = ComputerModule(source).handle(
+            request("computer_tap", """{"x":10,"y":20,"duration_ms":[]}"""),
+        )!!["result"]!!.jsonObject
+
+        assertFalse(response["isError"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(80, source.tapDurationMillis)
+    }
+
+    @Test
+    fun routerBoundsPendingSupplementsBySerializedBytes() {
+        val source = FakeComputerSource().apply {
+            screenshotData = "a".repeat((MobileCommandRouter.MAX_PENDING_SUPPLEMENT_BYTES / 2 + 1024).toInt())
+        }
+        val router = MobileCommandRouter(listOf(ComputerModule(source)))
+        val request = """{"namespace":"computer","args":["observe"]}"""
+
+        val first = Json.parseToJsonElement(router.executeJson(request)).jsonObject
+        val second = Json.parseToJsonElement(router.executeJson(request)).jsonObject
+
+        assertEquals(0, first["exitCode"]!!.jsonPrimitive.content.toInt())
+        assertEquals(1, second["exitCode"]!!.jsonPrimitive.content.toInt())
+        assertTrue(second["stderr"]!!.jsonPrimitive.content.contains("attachments exceed 4 MiB"))
+        router.clearSupplements()
+    }
+
     private class FakeComputerSource : ComputerSource {
         var nodeId = ""
         var text = ""
+        var tapDurationMillis = 0
+        var screenshotData = "aGVsbG8="
 
         private fun result() = ComputerOperationResult(
             payload = buildJsonObject {
                 put("observationId", JsonPrimitive("obs_1"))
                 put("accessibilityTree", buildJsonObject { put("nodes", kotlinx.serialization.json.buildJsonArray {}) })
             },
-            screenshot = ComputerScreenshot("aGVsbG8=", "image/jpeg"),
+            screenshot = ComputerScreenshot(screenshotData, "image/jpeg"),
         )
 
         override fun status() = result()
@@ -62,7 +103,9 @@ class ComputerModuleTest {
             this.nodeId = nodeId
             this.text = text
         }
-        override fun tap(x: Int, y: Int, durationMillis: Int) = result()
+        override fun tap(x: Int, y: Int, durationMillis: Int) = result().also {
+            tapDurationMillis = durationMillis
+        }
         override fun swipe(startX: Int, startY: Int, endX: Int, endY: Int, durationMillis: Int) = result()
         override fun globalAction(action: String) = result()
         override fun openApp(packageName: String) = result()

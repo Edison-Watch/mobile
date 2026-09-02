@@ -19,9 +19,6 @@
     <string name="computer_control_off">Off</string>
     <string name="computer_control_needs_accessibility">On · enable Mobile Tunnel in Accessibility settings</string>
     <string name="computer_control_ready">On · accessibility service connected</string>
-    <string name="computer_accessibility_label">Mobile Tunnel computer control</string>
-    <string name="computer_accessibility_summary">Allows an authorized private Mobile Bash session to observe and control visible Android apps.</string>
-    <string name="computer_accessibility_description">When computer control is enabled in Mobile Tunnel, this service can return screenshots and accessibility trees and can interact with visible apps. Available only in private, enterprise, and developer builds.</string>
     <string name="action_disable_computer">Stop computer control</string>
     <string name="connection_settings_label">Connection setup</string>
 

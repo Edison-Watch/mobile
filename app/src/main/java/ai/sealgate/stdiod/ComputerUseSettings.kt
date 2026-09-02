@@ -11,9 +11,9 @@ object ComputerUseSettings {
         preferences(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
     }
 
-    private fun preferences(context: Context) =
+    internal fun preferences(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private const val PREFS = "computer_use_settings"
-    private const val KEY_ENABLED = "enabled"
+    internal const val KEY_ENABLED = "enabled"
 }

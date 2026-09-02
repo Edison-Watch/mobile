@@ -30,7 +30,11 @@ data class ShellCommandResult(
 data class MobileCommandSupplement(
     val content: List<JsonObject>,
     val structuredContent: JsonObject?,
-)
+) {
+    fun serializedBytes(): Long =
+        content.sumOf { it.toString().toByteArray(Charsets.UTF_8).size.toLong() } +
+            (structuredContent?.toString()?.toByteArray(Charsets.UTF_8)?.size?.toLong() ?: 0L)
+}
 
 /**
  * Maps ergonomic CLI commands onto the existing MCP modules. The modules remain
@@ -47,6 +51,7 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
     private val nextSupplementId = AtomicLong()
     private val supplementLock = Any()
     private val supplements = LinkedHashMap<String, MobileCommandSupplement>()
+    private var pendingSupplementBytes = 0L
 
     init {
         val mappedTools = SPECS.map(CommandSpec::tool).toSet()
@@ -130,7 +135,10 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
         }
     }
 
-    fun clearSupplements() = synchronized(supplementLock) { supplements.clear() }
+    fun clearSupplements() = synchronized(supplementLock) {
+        supplements.clear()
+        pendingSupplementBytes = 0L
+    }
 
     fun availableNamespacesJson(): String = buildJsonArray {
         SPECS.asSequence()
@@ -141,13 +149,21 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
     }.toString()
 
     fun takeSupplements(tokens: List<String>): List<MobileCommandSupplement> = synchronized(supplementLock) {
-        tokens.mapNotNull(supplements::remove).also { supplements.clear() }
+        tokens.mapNotNull(supplements::remove).also {
+            supplements.clear()
+            pendingSupplementBytes = 0L
+        }
     }
 
     private fun retainSupplement(supplement: MobileCommandSupplement): String = synchronized(supplementLock) {
         check(supplements.size < MAX_PENDING_SUPPLEMENTS) { "too many pending mobile command attachments" }
+        val supplementBytes = supplement.serializedBytes()
+        check(supplementBytes <= MAX_PENDING_SUPPLEMENT_BYTES - pendingSupplementBytes) {
+            "pending mobile command attachments exceed 4 MiB"
+        }
         val token = nextSupplementId.incrementAndGet().toString()
         supplements[token] = supplement
+        pendingSupplementBytes += supplementBytes
         token
     }
 
@@ -290,6 +306,7 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
 
     companion object {
         private const val MAX_PENDING_SUPPLEMENTS = 64
+        internal const val MAX_PENDING_SUPPLEMENT_BYTES = 4L * 1024L * 1024L
         private val BashJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
         private fun spec(

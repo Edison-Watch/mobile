@@ -151,7 +151,7 @@ class ComputerModule(private val source: ComputerSource) : BaseMcpModule() {
         arguments[key]?.let { it as? JsonPrimitive }?.takeIf(JsonPrimitive::isString)?.content
 
     private fun intArg(arguments: JsonObject, key: String): Int? =
-        arguments[key]?.jsonPrimitive?.content?.toIntOrNull()
+        (arguments[key] as? JsonPrimitive)?.content?.toIntOrNull()
 
     private fun descriptor(
         name: String,

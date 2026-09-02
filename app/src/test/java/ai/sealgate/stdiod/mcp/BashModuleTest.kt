@@ -128,6 +128,20 @@ class BashModuleTest {
         assertFalse(result.containsKey("structuredContent"))
     }
 
+    @Test
+    fun truncatesJsonEscapedTextToTheSerializedMcpBudget() {
+        val escapedOutput = "\u0000".repeat(1024 * 1024)
+        val called = BashModule(
+            runtimeFactory = { FakeRuntime(BashExecutionResult(escapedOutput, "", 0)) },
+        ).handle(request(7, "tools/call", """{"name":"run","arguments":{"script":"escaped"}}"""))!!
+        val result = called["result"]!!.jsonObject
+        val text = result["content"]!!.jsonArray.single().jsonObject["text"]!!.jsonPrimitive.content
+
+        assertTrue(result["isError"]!!.jsonPrimitive.content.toBoolean())
+        assertTrue(text.endsWith("[output truncated: MCP result exceeds 4 MiB]\n"))
+        assertTrue(called.toString().toByteArray(Charsets.UTF_8).size <= BashModule.MAX_MCP_RESULT_BYTES)
+    }
+
     private class FakeRuntime(private val result: BashExecutionResult) : MobileBashRuntime {
         var lastScript: String? = null
         override fun execute(script: String): BashExecutionResult {

@@ -1,6 +1,7 @@
 package ai.sealgate.stdiod
 
 import android.Manifest
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.os.Build
@@ -33,6 +34,17 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var tunnelState: TunnelState? = null
+    private var syncingComputerControlSwitch = false
+    private val computerUsePreferenceListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (
+                key == ComputerUseSettings.KEY_ENABLED &&
+                BuildConfig.COMPUTER_USE_AVAILABLE &&
+                ::binding.isInitialized
+            ) {
+                renderComputerControl()
+            }
+        }
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
@@ -63,9 +75,10 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.COMPUTER_USE_AVAILABLE) {
             binding.computerControlSwitch.isChecked = ComputerUseSettings.isEnabled(this)
             binding.computerControlSwitch.setOnCheckedChangeListener { _, enabled ->
+                if (syncingComputerControlSwitch) return@setOnCheckedChangeListener
                 ComputerUseSettings.setEnabled(this, enabled)
                 if (!enabled) ComputerAccessibilityService.disable()
-                if (tunnelState != null) TunnelService.refreshComputerControl(this)
+                if (TunnelServiceState.state.value != null) TunnelService.refreshComputerControl(this)
                 renderComputerControl()
                 if (enabled && !ComputerAccessibilityService.isConnected()) {
                     startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -169,10 +182,32 @@ class MainActivity : AppCompatActivity() {
         if (BuildConfig.COMPUTER_USE_AVAILABLE && ::binding.isInitialized) renderComputerControl()
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (BuildConfig.COMPUTER_USE_AVAILABLE) {
+            ComputerUseSettings.preferences(this)
+                .registerOnSharedPreferenceChangeListener(computerUsePreferenceListener)
+            renderComputerControl()
+        }
+    }
+
+    override fun onStop() {
+        if (BuildConfig.COMPUTER_USE_AVAILABLE) {
+            ComputerUseSettings.preferences(this)
+                .unregisterOnSharedPreferenceChangeListener(computerUsePreferenceListener)
+        }
+        super.onStop()
+    }
+
     private fun renderComputerControl() {
         val enabled = ComputerUseSettings.isEnabled(this)
         if (binding.computerControlSwitch.isChecked != enabled) {
-            binding.computerControlSwitch.isChecked = enabled
+            syncingComputerControlSwitch = true
+            try {
+                binding.computerControlSwitch.isChecked = enabled
+            } finally {
+                syncingComputerControlSwitch = false
+            }
         }
         binding.computerControlStatus.setText(
             when {

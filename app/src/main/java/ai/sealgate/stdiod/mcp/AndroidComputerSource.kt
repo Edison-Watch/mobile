@@ -375,7 +375,7 @@ class AndroidComputerSource(context: Context) : ComputerSource {
             currentRoot?.windowId == initialWindowId &&
             service.eventSequence() == initialEventSequence
         currentRoot?.recycleCompat()
-        if (consistent && screenshotResult.screenshot != null) {
+        if (consistent) {
             snapshots.put(observationId, Snapshot(observationId, tree.locators))
         }
 

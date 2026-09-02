@@ -52,9 +52,12 @@ android {
     }
 
     sourceSets {
-        getByName("debug").manifest.srcFile("src/computerUse/AndroidManifest.xml")
-        getByName("private").manifest.srcFile("src/computerUse/AndroidManifest.xml")
-        getByName("enterprise").manifest.srcFile("src/computerUse/AndroidManifest.xml")
+        listOf("debug", "private", "enterprise").forEach { buildType ->
+            getByName(buildType).apply {
+                manifest.srcFile("src/computerUse/AndroidManifest.xml")
+                res.directories.add("src/computerUse/res")
+            }
+        }
     }
 
     compileOptions {

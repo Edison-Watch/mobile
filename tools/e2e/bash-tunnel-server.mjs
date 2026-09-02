@@ -272,8 +272,8 @@ server.on("upgrade", (request, socket, head) => {
       if (observation.action.uiSettled !== true || observation.action.settleTimedOut !== false) {
         return fail(`computer global Home did not settle before capture: ${JSON.stringify(observation.action)}`);
       }
-      if (observation.packageName === initialComputerObservation?.packageName) {
-        return fail(`computer global Home returned the stale pre-action package: ${observation.packageName}`);
+      if (observation.observationId === initialComputerObservation?.observationId) {
+        return fail(`computer global Home did not re-capture the screen: ${observation.observationId}`);
       }
       callBash(10, "computer click obs_missing:n0");
     } else if (response.id === 10) {

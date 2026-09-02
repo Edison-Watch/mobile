@@ -86,23 +86,24 @@ class BashModule(
                 append("Command completed successfully.")
             }
         }
+        val fittedText = fitTextToResultBudget(text)
         val acceptedSupplements = mutableListOf<MobileCommandSupplement>()
-        var resultBytes = text.toByteArray(Charsets.UTF_8).size
+        var resultBytes = serializedTextBytes(fittedText.text)
         var omittedSupplements = 0
         result.supplements.forEach { supplement ->
-            val supplementBytes = supplement.content.sumOf { it.toString().toByteArray(Charsets.UTF_8).size } +
-                (supplement.structuredContent?.toString()?.toByteArray(Charsets.UTF_8)?.size ?: 0)
-            if (resultBytes + supplementBytes <= MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES) {
+            val supplementBytes = supplement.serializedBytes()
+            if (resultBytes + supplementBytes <= (MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES).toLong()) {
                 acceptedSupplements += supplement
                 resultBytes += supplementBytes
             } else {
                 omittedSupplements++
             }
         }
-        val finalText = if (omittedSupplements == 0) {
-            text
-        } else {
-            text + "\n[computer attachments omitted: $omittedSupplements; MCP result exceeds 4 MiB]\n"
+        val finalText = buildString {
+            append(fittedText.text)
+            if (omittedSupplements > 0) {
+                append("\n[computer attachments omitted: $omittedSupplements; MCP result exceeds 4 MiB]\n")
+            }
         }
         val typedContent = buildList {
             add(JsonRpc.textContent(finalText))
@@ -121,9 +122,44 @@ class BashModule(
             id = id,
             content = typedContent,
             structuredContent = structured,
-            isError = result.exitCode != 0 || omittedSupplements > 0,
+            isError = result.exitCode != 0 || fittedText.truncated || omittedSupplements > 0,
         )
     }
+
+    private fun fitTextToResultBudget(text: String): FittedText {
+        val budget = (MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES).toLong()
+        if (serializedTextBytes(text) <= budget) return FittedText(text, truncated = false)
+
+        var low = 0
+        var high = text.length
+        while (low < high) {
+            val candidateEnd = low + (high - low + 1) / 2
+            val candidate = safePrefix(text, candidateEnd) + OUTPUT_TRUNCATED_NOTICE
+            if (serializedTextBytes(candidate) <= budget) {
+                low = candidateEnd
+            } else {
+                high = candidateEnd - 1
+            }
+        }
+        return FittedText(safePrefix(text, low) + OUTPUT_TRUNCATED_NOTICE, truncated = true)
+    }
+
+    private fun serializedTextBytes(text: String): Long =
+        JsonRpc.textContent(text).toString().toByteArray(Charsets.UTF_8).size.toLong()
+
+    private fun safePrefix(text: String, requestedEnd: Int): String {
+        var end = requestedEnd.coerceIn(0, text.length)
+        if (
+            end in 1 until text.length &&
+            text[end - 1].isHighSurrogate() &&
+            text[end].isLowSurrogate()
+        ) {
+            end--
+        }
+        return text.substring(0, end)
+    }
+
+    private data class FittedText(val text: String, val truncated: Boolean)
 
     override fun close() {
         if (runtimeDelegate.isInitialized()) runtime.close()
@@ -138,5 +174,6 @@ class BashModule(
         const val MAX_SCRIPT_BYTES = 64 * 1024
         const val MAX_MCP_RESULT_BYTES = 4 * 1024 * 1024
         private const val MCP_ENVELOPE_RESERVE_BYTES = 64 * 1024
+        private const val OUTPUT_TRUNCATED_NOTICE = "\n[output truncated: MCP result exceeds 4 MiB]\n"
     }
 }
