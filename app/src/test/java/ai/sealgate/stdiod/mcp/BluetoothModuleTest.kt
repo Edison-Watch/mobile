@@ -102,6 +102,7 @@ class BluetoothModuleTest {
                 "bt_gatt_services",
                 "bt_gatt_read",
                 "bt_gatt_write",
+                "bt_gatt_write_sequence",
                 "bt_gatt_request_mtu",
                 "bt_gatt_subscribe",
                 "bt_gatt_notifications_poll",

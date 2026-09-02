@@ -2,6 +2,7 @@ package ai.sealgate.stdiod.tunnel
 
 import ai.sealgate.stdiod.mcp.LocalMcpModule
 import android.util.Log
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -15,7 +16,9 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
+import kotlin.concurrent.thread
 import kotlin.random.Random
 
 /** Who this device says it is in `client_hello`. */
@@ -64,18 +67,47 @@ class TunnelClient(
 
     private var loopJob: Job? = null
     private var webSocket: WebSocket? = null
+    private val stopped = AtomicBoolean(false)
+    private val modulesClosed = AtomicBoolean(false)
+    private val modulesCloseFinished = CompletableDeferred<Unit>()
+    private val moduleLock = Any()
 
     fun start() {
+        if (stopped.get()) return
         if (loopJob?.isActive == true) return
         loopJob = scope.launch { connectLoop() }
     }
 
     fun stop() {
+        stopped.set(true)
         loopJob?.cancel()
         loopJob = null
         webSocket?.close(NORMAL_CLOSURE, "client stopping")
         webSocket = null
+        if (modulesClosed.compareAndSet(false, true)) {
+            // A QuickJS evaluation may hold its runtime lock until the 60-second
+            // execution limit. Never make the service/main thread wait for it.
+            thread(start = true, isDaemon = true, name = "mobile-mcp-close") {
+                try {
+                    synchronized(moduleLock) {
+                        modulesByName.values.filterIsInstance<AutoCloseable>().forEach { module ->
+                            runCatching(module::close).onFailure {
+                                Log.w(TAG, "failed to close module ${module.javaClass.simpleName}", it)
+                            }
+                        }
+                    }
+                } finally {
+                    modulesCloseFinished.complete(Unit)
+                }
+            }
+        }
         _state.value = TunnelState.Disconnected
+    }
+
+    /** Stop and wait off the main thread until in-flight module work has drained. */
+    suspend fun stopAndAwait() {
+        stop()
+        modulesCloseFinished.await()
     }
 
     private suspend fun connectLoop() {
@@ -110,6 +142,10 @@ class TunnelClient(
             var sawServerHello = false
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (stopped.get()) {
+                    webSocket.close(NORMAL_CLOSURE, "client already stopped")
+                    return
+                }
                 this@TunnelClient.webSocket = webSocket
                 send(
                     webSocket,
@@ -126,6 +162,7 @@ class TunnelClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (stopped.get()) return
                 val frame = try {
                     parseTunnelFrame(text)
                 } catch (e: IllegalArgumentException) {
@@ -185,6 +222,7 @@ class TunnelClient(
      * create-server flow gets a real error instead of a timeout.
      */
     private fun bindServers(webSocket: WebSocket, servers: List<DesiredServer>) {
+        if (stopped.get()) return
         for (server in servers) {
             if (!server.enabled) {
                 modulesByServerId.remove(server.serverId)
@@ -224,7 +262,11 @@ class TunnelClient(
             )
             return
         }
-        val response = module.handle(frame.frame) ?: return
+        val response = synchronized(moduleLock) {
+            if (stopped.get()) return
+            module.handle(frame.frame)
+        } ?: return
+        if (stopped.get()) return
         send(webSocket, McpFrame(serverId = frame.serverId, frame = response))
     }
 

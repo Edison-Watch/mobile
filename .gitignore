@@ -42,3 +42,7 @@ captures/
 
 # Keep the Gradle wrapper jar in version control.
 !gradle/wrapper/gradle-wrapper.jar
+# Node dependencies used only to regenerate the vendored Bash runtime asset.
+node_modules/
+# Generated locally by Gradle's daemon JVM criteria task.
+gradle/gradle-daemon-jvm.properties
