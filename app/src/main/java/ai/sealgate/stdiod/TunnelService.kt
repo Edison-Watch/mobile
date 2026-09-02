@@ -84,6 +84,9 @@ class TunnelService : LifecycleService() {
     }
 
     private fun connect(config: TunnelConfig) {
+        // A replacement waits for the old module to drain; do not leave the UI
+        // claiming the previous client is still connected during that window.
+        TunnelServiceState.publish(TunnelState.Connecting)
         val generation = ++connectGeneration
         val previousClient = tunnelClient
         tunnelClient = null

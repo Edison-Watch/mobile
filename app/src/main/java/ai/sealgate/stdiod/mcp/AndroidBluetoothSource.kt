@@ -676,6 +676,10 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
                 // Missing scan permission - connect() still works.
             }
             val connectError = connectSocketWithTimeout(socket, timeoutMs)
+            if (closed) {
+                runCatching(socket::close)
+                return BtOpResult("bluetooth source is closed")
+            }
             if (connectError != null) {
                 try {
                     socket.close()
