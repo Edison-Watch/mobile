@@ -97,6 +97,7 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
     }
 
     override fun requestPermission(deviceName: String): UsbPermissionResult {
+        if (closed) return UsbPermissionResult(error = "USB source is closed")
         val manager = usbManager ?: return UsbPermissionResult(error = "USB host service is unavailable on this device")
         val device = findDevice(manager, deviceName)
             ?: return UsbPermissionResult(error = "unknown USB device: $deviceName (call usb_list_devices)")
@@ -117,24 +118,27 @@ class AndroidUsbSource(private val context: Context) : UsbSource {
                     }
                 }
             }
-            ContextCompat.registerReceiver(
-                context,
-                receiver,
-                IntentFilter(ACTION_USB_PERMISSION),
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_MUTABLE
-            } else {
-                0
+            synchronized(lifecycleLock) {
+                if (closed) return UsbPermissionResult(error = "USB source is closed")
+                ContextCompat.registerReceiver(
+                    context,
+                    receiver,
+                    IntentFilter(ACTION_USB_PERMISSION),
+                    ContextCompat.RECEIVER_NOT_EXPORTED,
+                )
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_MUTABLE
+                } else {
+                    0
+                }
+                val pending = PendingIntent.getBroadcast(
+                    context,
+                    0,
+                    Intent(ACTION_USB_PERMISSION).setPackage(context.packageName),
+                    flags,
+                )
+                manager.requestPermission(device, pending)
             }
-            val pending = PendingIntent.getBroadcast(
-                context,
-                0,
-                Intent(ACTION_USB_PERMISSION).setPackage(context.packageName),
-                flags,
-            )
-            manager.requestPermission(device, pending)
             UsbPermissionResult(requested = true)
         } catch (e: SecurityException) {
             UsbPermissionResult(error = "USB permission request denied: ${e.message}")

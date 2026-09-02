@@ -128,6 +128,9 @@ class QuickJsMobileBashRuntime(
                 if (!ArrayBuffer.isView(array) || array instanceof DataView) {
                   throw new TypeError("Expected an integer typed array");
                 }
+                if (array instanceof Float32Array || array instanceof Float64Array) {
+                  throw new TypeError("Expected an integer typed array");
+                }
                 if (array.byteLength > 65536) throw new DOMException("Quota exceeded", "QuotaExceededError");
                 const hex = __mobileRandomHex(array.byteLength);
                 const bytes = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
@@ -146,7 +149,9 @@ class QuickJsMobileBashRuntime(
             };
             globalThis.TextDecoder = class TextDecoder {
               decode(value = new Uint8Array()) {
-                const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+                const bytes = value instanceof ArrayBuffer
+                  ? new Uint8Array(value)
+                  : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
                 let output = "";
                 for (let i = 0; i < bytes.length;) {
                   const first = bytes[i];
@@ -156,7 +161,7 @@ class QuickJsMobileBashRuntime(
                   else if (first >= 0xe0 && first <= 0xef) { needed = 2; codePoint = first & 0x0f; minimum = 0x800; }
                   else if (first >= 0xf0 && first <= 0xf4) { needed = 3; codePoint = first & 0x07; minimum = 0x10000; }
                   else { output += "\ufffd"; i++; continue; }
-                  if (i + needed >= bytes.length) { output += "\ufffd"; i++; continue; }
+                  if (i + needed >= bytes.length) { output += "\ufffd"; i = bytes.length; continue; }
                   let valid = true;
                   for (let j = 1; j <= needed; j++) {
                     if ((bytes[i + j] & 0xc0) !== 0x80) { valid = false; break; }

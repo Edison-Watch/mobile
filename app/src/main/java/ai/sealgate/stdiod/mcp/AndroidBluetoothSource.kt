@@ -50,6 +50,8 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
 
     private val gattConnections = ConcurrentHashMap<String, GattConnection>()
     private val sppConnections = ConcurrentHashMap<String, SppConnection>()
+    private val pendingGattConnections = mutableSetOf<GattConnection>()
+    private val pendingSppSockets = mutableSetOf<BluetoothSocket>()
     private val lifecycleLock = Any()
     @Volatile private var closed = false
 
@@ -72,15 +74,23 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             ) == PackageManager.PERMISSION_GRANTED
 
     override fun close() {
+        var pendingGatts: List<GattConnection> = emptyList()
+        var pendingSockets: List<BluetoothSocket> = emptyList()
         val (gatts, spps) = synchronized(lifecycleLock) {
             if (closed) return
             closed = true
             val openGatts = gattConnections.values.toList()
             val openSpps = sppConnections.values.toList()
+            pendingGatts = pendingGattConnections.toList()
+            pendingSockets = pendingSppSockets.toList()
             gattConnections.clear()
             sppConnections.clear()
+            pendingGattConnections.clear()
+            pendingSppSockets.clear()
             openGatts to openSpps
         }
+        pendingGatts.forEach(GattConnection::close)
+        pendingSockets.forEach { socket -> runCatching(socket::close) }
         gatts.forEach(GattConnection::close)
         spps.forEach(SppConnection::close)
     }
@@ -235,12 +245,18 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             gattConnections.remove(address)
         }?.close()
         val conn = GattConnection(address)
+        val pendingAccepted = synchronized(lifecycleLock) {
+            if (closed) false else pendingGattConnections.add(conn)
+        }
+        if (!pendingAccepted) return GattServicesResult(error = "bluetooth source is closed")
         return try {
             val latch = CountDownLatch(1)
             conn.beginConnect(latch)
             val gatt = device.connectGatt(context, false, conn.callback, BluetoothDevice.TRANSPORT_LE)
                 ?: return GattServicesResult(error = "could not open a GATT connection to $address")
-            conn.gatt = gatt
+            if (!conn.attach(gatt)) {
+                return GattServicesResult(error = "bluetooth source was closed while connecting to $address")
+            }
             if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
                 conn.close()
                 return GattServicesResult(error = "timed out connecting to $address")
@@ -265,6 +281,8 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
         } catch (e: SecurityException) {
             conn.close()
             GattServicesResult(error = "bluetooth connect permission denied: ${e.message}")
+        } finally {
+            synchronized(lifecycleLock) { pendingGattConnections.remove(conn) }
         }
     }
 
@@ -640,8 +658,17 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             if (closed) return BtOpResult("bluetooth source is closed")
             sppConnections.remove(address)
         }?.close()
+        var pendingSocket: BluetoothSocket? = null
         return try {
             val socket = device.createRfcommSocketToServiceRecord(serviceUuid)
+            pendingSocket = socket
+            val pendingAccepted = synchronized(lifecycleLock) {
+                if (closed) false else pendingSppSockets.add(socket)
+            }
+            if (!pendingAccepted) {
+                runCatching(socket::close)
+                return BtOpResult("bluetooth source is closed")
+            }
             // Discovery makes connect() slow/unreliable; cancel it first (best effort).
             try {
                 adapter?.cancelDiscovery()
@@ -675,6 +702,10 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
             BtOpResult("bluetooth connect permission denied: ${e.message}")
         } catch (e: IOException) {
             BtOpResult("could not open an SPP socket to $address: ${e.message}")
+        } finally {
+            pendingSocket?.let { socket ->
+                synchronized(lifecycleLock) { pendingSppSockets.remove(socket) }
+            }
         }
     }
 
@@ -794,6 +825,7 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
      */
     private inner class GattConnection(private val address: String) {
         @Volatile var gatt: BluetoothGatt? = null
+        @Volatile private var closed = false
 
         @Volatile private var connectLatch: CountDownLatch? = null
         @Volatile var discovered: Boolean = false
@@ -819,6 +851,16 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
         fun beginConnect(latch: CountDownLatch) {
             discovered = false
             connectLatch = latch
+        }
+
+        fun attach(value: BluetoothGatt): Boolean = synchronized(this) {
+            if (closed) {
+                runCatching(value::close)
+                false
+            } else {
+                gatt = value
+                true
+            }
         }
 
         fun beginRead(latch: CountDownLatch) {
@@ -943,8 +985,16 @@ class AndroidBluetoothSource(private val context: Context) : BluetoothControlSou
         }
 
         fun close() {
-            val g = gatt
-            gatt = null
+            val g = synchronized(this) {
+                if (closed) return
+                closed = true
+                gatt.also { gatt = null }
+            }
+            connectLatch?.countDown()
+            readLatch?.countDown()
+            writeLatch?.countDown()
+            mtuLatch?.countDown()
+            descriptorLatch?.countDown()
             subscriptions.clear()
             try {
                 g?.disconnect()

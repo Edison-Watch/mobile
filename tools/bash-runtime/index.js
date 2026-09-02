@@ -116,6 +116,19 @@ function sleepCommand() {
   });
 }
 
+function blockedCommand(name) {
+  return defineCommand(name, async () => ({
+    stdout: "",
+    stderr: `${name}: blocked by Mobile Bash policy\n`,
+    exitCode: 126,
+  }));
+}
+
+const BLOCKED_COMMANDS = [
+  "curl", "wget", "python", "python3", "node", "js-exec", "sqlite3",
+  "tar", "gzip", "gunzip", "zcat",
+];
+
 globalThis.__mobileBash = new Bash({
   fs: cappedFileSystem(),
   cwd: "/home/agent",
@@ -130,6 +143,7 @@ globalThis.__mobileBash = new Bash({
   commands: SAFE_COMMANDS,
   customCommands: [
     ...["device", "battery", "wifi", "bluetooth", "usb"].map(hostCommand),
+    ...BLOCKED_COMMANDS.map(blockedCommand),
     sleepCommand(),
   ],
   executionLimitProfile: "hardened",

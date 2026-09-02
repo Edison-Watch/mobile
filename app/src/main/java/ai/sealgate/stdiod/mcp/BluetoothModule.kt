@@ -103,7 +103,7 @@ data class GattMtuResult(val mtu: Int = 0, val error: String? = null)
 
 /** Accept canonical UUIDs plus the 16/32-bit aliases commonly printed by BLE tools. */
 internal fun canonicalBluetoothUuid(raw: String): String? {
-    val compact = raw.trim().removePrefix("0x").lowercase()
+    val compact = raw.trim().lowercase().removePrefix("0x")
     val canonical = when {
         compact.matches(Regex("^[0-9a-f]{1,4}$")) ->
             "0000${compact.padStart(4, '0')}-0000-1000-8000-00805f9b34fb"

@@ -10,8 +10,11 @@ const port = Number(process.env.MOBILE_BASH_E2E_PORT ?? "8765");
 const expectedToken = process.env.MOBILE_BASH_E2E_TOKEN ?? "e2e-token";
 
 let completed = false;
+let failed = false;
 const sockets = new Set();
 const fail = (message) => {
+  if (failed) return;
+  failed = true;
   console.error(`E2E FAILED: ${message}`);
   process.exitCode = 1;
 };
@@ -108,7 +111,7 @@ server.on("upgrade", (request, socket, head) => {
   sockets.add(socket);
   socket.once("close", () => sockets.delete(socket));
   socket.on("error", (error) => {
-    if (!completed) fail(`WebSocket error: ${error.message}`);
+    if (!completed && !failed) fail(`WebSocket error: ${error.message}`);
   });
   if (request.headers.authorization !== `Bearer ${expectedToken}`) {
     fail("Bearer token was not forwarded by the app");

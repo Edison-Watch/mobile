@@ -50,6 +50,8 @@ import kotlinx.coroutines.launch
 class TunnelService : LifecycleService() {
 
     private var tunnelJob: Job? = null
+    private var connectJob: Job? = null
+    private var connectGeneration = 0
     private var notificationAnimationJob: Job? = null
     private var tunnelClient: TunnelClient? = null
     private val sealGateLogo by lazy {
@@ -82,10 +84,22 @@ class TunnelService : LifecycleService() {
     }
 
     private fun connect(config: TunnelConfig) {
-        tunnelClient?.stop()
+        val generation = ++connectGeneration
+        val previousClient = tunnelClient
+        tunnelClient = null
+        previousClient?.stop()
         tunnelJob?.cancel()
         notificationAnimationJob?.cancel()
+        val previousConnectJob = connectJob
+        connectJob = lifecycleScope.launch {
+            previousConnectJob?.join()
+            previousClient?.stopAndAwait()
+            if (generation != connectGeneration || !isActive) return@launch
+            startClient(config)
+        }
+    }
 
+    private fun startClient(config: TunnelConfig) {
         Log.i(TAG, "Tunnel starting -> ${config.gatewayUrl}")
         val identity = DeviceIdentityStore.load(this, BuildConfig.VERSION_NAME)
         val capabilityModules = listOf(
@@ -158,6 +172,9 @@ class TunnelService : LifecycleService() {
     }
 
     override fun onDestroy() {
+        connectGeneration++
+        connectJob?.cancel()
+        connectJob = null
         tunnelClient?.stop()
         tunnelClient = null
         tunnelJob?.cancel()

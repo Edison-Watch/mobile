@@ -80,10 +80,10 @@ class MobileBashRuntimeTest {
             ).forEach { forbidden ->
                 val denied = runtime.execute(forbidden)
                 assertTrue("$forbidden unexpectedly ran", denied.exitCode != 0)
+                assertEquals("$forbidden did not use the policy-denied exit code", 126, denied.exitCode)
                 assertTrue(
-                    "$forbidden was not excluded from the command set; stderr=${denied.stderr}",
-                    denied.stderr.contains("not found") ||
-                        denied.stderr.contains("command not available in browser environments"),
+                    "$forbidden was not denied by policy; stderr=${denied.stderr}",
+                    denied.stderr.contains("blocked by Mobile Bash policy"),
                 )
             }
         } finally {

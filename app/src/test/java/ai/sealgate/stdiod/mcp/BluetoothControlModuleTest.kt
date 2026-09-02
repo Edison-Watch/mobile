@@ -254,7 +254,7 @@ class BluetoothControlModuleTest {
             isError(
                 moduleCall(
                     "bt_gatt_write",
-                    """{"service":"fa","characteristic":"fa02","value_hex":"01"}""",
+                    """{"service":"0XFA","characteristic":"0XFA02","value_hex":"01"}""",
                 ),
             ),
         )
