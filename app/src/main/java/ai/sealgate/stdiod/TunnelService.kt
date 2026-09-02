@@ -23,6 +23,9 @@ import ai.sealgate.stdiod.mcp.AndroidWifiSource
 import ai.sealgate.stdiod.mcp.BatteryModule
 import ai.sealgate.stdiod.mcp.BashModule
 import ai.sealgate.stdiod.mcp.BluetoothModule
+import ai.sealgate.stdiod.mcp.AndroidComputerSource
+import ai.sealgate.stdiod.mcp.ComputerAccessibilityService
+import ai.sealgate.stdiod.mcp.ComputerModule
 import ai.sealgate.stdiod.mcp.DeviceInfoModule
 import ai.sealgate.stdiod.mcp.MobileCommandRouter
 import ai.sealgate.stdiod.mcp.QuickJsMobileBashRuntime
@@ -60,6 +63,16 @@ class TunnelService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+
+        if (intent?.action == ACTION_DISABLE_COMPUTER || intent?.action == ACTION_REFRESH_COMPUTER) {
+            if (intent.action == ACTION_DISABLE_COMPUTER) {
+                ComputerUseSettings.setEnabled(this, false)
+                ComputerAccessibilityService.disable()
+            }
+            val state = TunnelServiceState.state.value ?: TunnelState.Connecting
+            startForeground(NOTIFICATION_ID, buildNotification(state))
+            return START_STICKY
+        }
 
         startForeground(NOTIFICATION_ID, buildNotification(TunnelState.Connecting))
 
@@ -105,13 +118,16 @@ class TunnelService : LifecycleService() {
     private fun startClient(config: TunnelConfig) {
         Log.i(TAG, "Tunnel starting -> ${config.gatewayUrl}")
         val identity = DeviceIdentityStore.load(this, BuildConfig.VERSION_NAME)
-        val capabilityModules = listOf(
-            DeviceInfoModule(AndroidDeviceInfo),
-            BatteryModule(AndroidBatterySource(this)),
-            WifiModule(AndroidWifiSource(this)),
-            BluetoothModule(AndroidBluetoothSource(this)),
-            UsbModule(AndroidUsbSource(this)),
-        )
+        val capabilityModules = buildList {
+            add(DeviceInfoModule(AndroidDeviceInfo))
+            add(BatteryModule(AndroidBatterySource(this@TunnelService)))
+            add(WifiModule(AndroidWifiSource(this@TunnelService)))
+            add(BluetoothModule(AndroidBluetoothSource(this@TunnelService)))
+            add(UsbModule(AndroidUsbSource(this@TunnelService)))
+            if (BuildConfig.COMPUTER_USE_AVAILABLE) {
+                add(ComputerModule(AndroidComputerSource(this@TunnelService)))
+            }
+        }
         val router = MobileCommandRouter(capabilityModules)
         val exposedModules = listOf(
             BashModule(
@@ -195,7 +211,13 @@ class TunnelService : LifecycleService() {
         val presentation = notificationPresentation(state)
         val status = getString(presentation.status)
         val statusColor = ContextCompat.getColor(this, presentation.color)
-        val route = getString(R.string.notification_route)
+        val route = getString(
+            if (BuildConfig.COMPUTER_USE_AVAILABLE && ComputerUseSettings.isEnabled(this)) {
+                R.string.notification_route_computer
+            } else {
+                R.string.notification_route
+            },
+        )
         val diagram = NotificationTunnelArtwork.render(this, state, frame)
         val openApp = PendingIntent.getActivity(
             this,
@@ -214,7 +236,7 @@ class TunnelService : LifecycleService() {
             )
         }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             // A native template uses the full width Android makes available to
             // notifications and stays far denser than a decorated RemoteViews panel.
             .setContentTitle(status)
@@ -230,7 +252,16 @@ class TunnelService : LifecycleService() {
             .setOngoing(true)
             .setShowWhen(false)
             .setContentIntent(openApp)
-            .build()
+        if (BuildConfig.COMPUTER_USE_AVAILABLE && ComputerUseSettings.isEnabled(this)) {
+            val disableComputer = PendingIntent.getService(
+                this,
+                1,
+                Intent(this, TunnelService::class.java).setAction(ACTION_DISABLE_COMPUTER),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            builder.addAction(0, getString(R.string.action_disable_computer), disableComputer)
+        }
+        return builder.build()
     }
 
     private fun notificationPresentation(state: TunnelState): NotificationPresentation =
@@ -287,6 +318,8 @@ class TunnelService : LifecycleService() {
         private const val NOTIFICATION_FRAME_INTERVAL_MILLIS = 500L
         private const val NOTIFICATION_SCREEN_OFF_INTERVAL_MILLIS = 10_000L
         private const val BASH_RUNTIME_ASSET = "mobile-bash-runtime.js"
+        private const val ACTION_DISABLE_COMPUTER = "ai.sealgate.stdiod.action.DISABLE_COMPUTER"
+        private const val ACTION_REFRESH_COMPUTER = "ai.sealgate.stdiod.action.REFRESH_COMPUTER"
 
         /** Start the tunnel with the given config. */
         fun start(context: Context, config: TunnelConfig) {
@@ -300,6 +333,12 @@ class TunnelService : LifecycleService() {
         /** Stop the tunnel. */
         fun stop(context: Context) {
             context.stopService(Intent(context, TunnelService::class.java))
+        }
+
+        fun refreshComputerControl(context: Context) {
+            context.startForegroundService(
+                Intent(context, TunnelService::class.java).setAction(ACTION_REFRESH_COMPUTER),
+            )
         }
     }
 }

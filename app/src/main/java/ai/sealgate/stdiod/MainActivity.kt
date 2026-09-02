@@ -5,6 +5,8 @@ import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +19,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import ai.sealgate.stdiod.databinding.ActivityMainBinding
 import ai.sealgate.stdiod.tunnel.TunnelState
+import ai.sealgate.stdiod.mcp.ComputerAccessibilityService
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -54,6 +57,22 @@ class MainActivity : AppCompatActivity() {
         binding.gatewayUrlInput.setText(stored.gatewayUrl)
         binding.apiKeyInput.setText(stored.authToken)
         binding.settingsPanel.visibility = if (stored.isValid()) View.GONE else View.VISIBLE
+
+        binding.computerControlPanel.visibility =
+            if (BuildConfig.COMPUTER_USE_AVAILABLE) View.VISIBLE else View.GONE
+        if (BuildConfig.COMPUTER_USE_AVAILABLE) {
+            binding.computerControlSwitch.isChecked = ComputerUseSettings.isEnabled(this)
+            binding.computerControlSwitch.setOnCheckedChangeListener { _, enabled ->
+                ComputerUseSettings.setEnabled(this, enabled)
+                if (!enabled) ComputerAccessibilityService.disable()
+                if (tunnelState != null) TunnelService.refreshComputerControl(this)
+                renderComputerControl()
+                if (enabled && !ComputerAccessibilityService.isConnected()) {
+                    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                }
+            }
+            renderComputerControl()
+        }
 
         binding.swipeRefresh.setColorSchemeResources(R.color.core_cyan)
         binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.baseline_black)
@@ -143,6 +162,25 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (BuildConfig.COMPUTER_USE_AVAILABLE && ::binding.isInitialized) renderComputerControl()
+    }
+
+    private fun renderComputerControl() {
+        val enabled = ComputerUseSettings.isEnabled(this)
+        if (binding.computerControlSwitch.isChecked != enabled) {
+            binding.computerControlSwitch.isChecked = enabled
+        }
+        binding.computerControlStatus.setText(
+            when {
+                !enabled -> R.string.computer_control_off
+                ComputerAccessibilityService.isConnected() -> R.string.computer_control_ready
+                else -> R.string.computer_control_needs_accessibility
+            },
+        )
     }
 
     private fun renderState(state: TunnelState?, text: String) {

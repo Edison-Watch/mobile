@@ -4,13 +4,17 @@ import http from "node:http";
 // Loopback gateway used for connected-phone smoke tests. Run this script,
 // `adb reverse tcp:8765 tcp:8765`, then point the debug app at
 // ws://127.0.0.1:8765 with token `e2e-token`. Mobile Bash is the app's only
-// MCP surface, so the client must advertise exactly `mobilebash`.
+// MCP surface, so the client must advertise exactly `mobilebash`. Set
+// MOBILE_BASH_E2E_COMPUTER=1 after enabling computer control on the phone to
+// additionally verify native image/tree observations and a global Home action.
 
 const port = Number(process.env.MOBILE_BASH_E2E_PORT ?? "8765");
 const expectedToken = process.env.MOBILE_BASH_E2E_TOKEN ?? "e2e-token";
+const testComputer = process.env.MOBILE_BASH_E2E_COMPUTER === "1";
 
 let completed = false;
 let failed = false;
+let initialComputerObservation = null;
 const sockets = new Set();
 const fail = (message) => {
   if (failed) return;
@@ -18,6 +22,31 @@ const fail = (message) => {
   console.error(`E2E FAILED: ${message}`);
   process.exitCode = 1;
 };
+
+function validateComputerObservation(result, label) {
+  if (result?.isError) throw new Error(`${label} returned an MCP tool error`);
+  const content = result?.content;
+  const images = Array.isArray(content) ? content.filter((item) => item.type === "image") : [];
+  if (images.length !== 1 || images[0].mimeType !== "image/jpeg") {
+    throw new Error(`${label} did not return exactly one native MCP JPEG image block`);
+  }
+  const jpeg = Buffer.from(images[0].data, "base64");
+  if (jpeg.length < 2 || jpeg[0] !== 0xff || jpeg[1] !== 0xd8) {
+    throw new Error(`${label} image block is not JPEG data`);
+  }
+  const observation = result?.structuredContent?.commandResults?.[0];
+  const tree = observation?.accessibilityTree;
+  if (!Array.isArray(tree?.nodes) || tree.nodes.length === 0 || tree.nodeCount !== tree.nodes.length) {
+    throw new Error(`${label} accessibility tree is empty or internally inconsistent`);
+  }
+  const screenshot = observation?.screenshot;
+  if (!screenshot?.available || screenshot.encodedBytes !== jpeg.length) {
+    throw new Error(`${label} screenshot metadata does not match its image block`);
+  }
+  const digest = crypto.createHash("sha256").update(jpeg).digest("hex");
+  if (screenshot.sha256 !== digest) throw new Error(`${label} screenshot digest mismatch`);
+  return observation;
+}
 
 function encodeFrame(payload, opcode = 0x1) {
   payload = Buffer.isBuffer(payload) ? payload : Buffer.from(payload);
@@ -147,7 +176,12 @@ server.on("upgrade", (request, socket, head) => {
 
   const onMessage = (raw) => {
     const message = JSON.parse(raw);
-    console.log(JSON.stringify(message));
+    const responseId = message.type === "mcp_frame" ? message.frame?.id : undefined;
+    if (responseId === 8 || responseId === 9) {
+      console.log(`received computer-use MCP response ${responseId}`);
+    } else {
+      console.log(JSON.stringify(message));
+    }
     if (message.type === "client_hello") {
       if (JSON.stringify(message.currently_running) !== JSON.stringify(["mobilebash"])) {
         fail(`expected only mobilebash in currently_running, got ${JSON.stringify(message.currently_running)}`);
@@ -209,8 +243,55 @@ server.on("upgrade", (request, socket, head) => {
       callBash(7, "cat /etc/passwd");
     } else if (response.id === 7) {
       if (response.result?.isError !== true) return fail("Android filesystem escape was not rejected");
+      if (testComputer) {
+        callBash(8, "computer observe");
+        return;
+      }
       completed = true;
       console.log("E2E PASSED: one-tool Mobile Bash tunnel, MCP lifecycle, composable shell, run-scoped files, Android battery bridge, and filesystem isolation");
+      clearTimeout(timeout);
+      socket.end(encodeFrame(Buffer.from([0x03, 0xe8]), 0x8));
+      server.close();
+    } else if (response.id === 8) {
+      try {
+        initialComputerObservation = validateComputerObservation(response.result, "computer observe");
+      } catch (error) {
+        return fail(error.message);
+      }
+      callBash(9, "computer global home");
+    } else if (response.id === 9) {
+      let observation;
+      try {
+        observation = validateComputerObservation(response.result, "computer global home");
+      } catch (error) {
+        return fail(error.message);
+      }
+      if (observation.action?.name !== "global:home" || observation.action?.performed !== true) {
+        return fail(`computer global Home was not performed: ${JSON.stringify(observation.action)}`);
+      }
+      if (observation.action.uiSettled !== true || observation.action.settleTimedOut !== false) {
+        return fail(`computer global Home did not settle before capture: ${JSON.stringify(observation.action)}`);
+      }
+      if (observation.packageName === initialComputerObservation?.packageName) {
+        return fail(`computer global Home returned the stale pre-action package: ${observation.packageName}`);
+      }
+      callBash(10, "computer click obs_missing:n0");
+    } else if (response.id === 10) {
+      const result = response.result;
+      const text = result?.content?.find((item) => item.type === "text")?.text ?? "";
+      const images = result?.content?.filter((item) => item.type === "image") ?? [];
+      const error = result?.structuredContent?.commandResults?.[0];
+      if (result?.isError !== true || !text.includes("stale or unknown node_id")) {
+        return fail(`stale node did not return a clear MCP error: ${text}`);
+      }
+      if (text.length > 4096 || images.length !== 0 || error?.accessibilityTree != null) {
+        return fail("stale node error included an oversized observation or image");
+      }
+      if (error?.ok !== false || error?.action?.performed !== false) {
+        return fail(`stale node error envelope is contradictory: ${JSON.stringify(error)}`);
+      }
+      completed = true;
+      console.log("E2E PASSED: Mobile Bash plus fresh post-action observations, native MCP screenshots/trees, and compact action errors");
       clearTimeout(timeout);
       socket.end(encodeFrame(Buffer.from([0x03, 0xe8]), 0x8));
       server.close();

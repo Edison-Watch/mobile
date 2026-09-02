@@ -64,23 +64,33 @@ object JsonRpc {
 
     /** A `tools/call` result wrapping one text content block. */
     fun textToolResult(id: JsonElement, text: String, isError: Boolean = false): JsonObject =
-        result(
-            id,
-            buildJsonObject {
-                put(
-                    "content",
-                    buildJsonArray {
-                        add(
-                            buildJsonObject {
-                                put("type", JsonPrimitive("text"))
-                                put("text", JsonPrimitive(text))
-                            },
-                        )
-                    },
-                )
-                put("isError", JsonPrimitive(isError))
-            },
-        )
+        toolResult(id, listOf(textContent(text)), isError = isError)
+
+    fun textContent(text: String): JsonObject = buildJsonObject {
+        put("type", JsonPrimitive("text"))
+        put("text", JsonPrimitive(text))
+    }
+
+    fun imageContent(data: String, mimeType: String): JsonObject = buildJsonObject {
+        put("type", JsonPrimitive("image"))
+        put("data", JsonPrimitive(data))
+        put("mimeType", JsonPrimitive(mimeType))
+    }
+
+    /** A typed MCP tool result. Binary content must be carried as an image block, never stdout. */
+    fun toolResult(
+        id: JsonElement,
+        content: List<JsonObject>,
+        structuredContent: JsonObject? = null,
+        isError: Boolean = false,
+    ): JsonObject = result(
+        id,
+        buildJsonObject {
+            put("content", buildJsonArray { content.forEach(::add) })
+            structuredContent?.let { put("structuredContent", it) }
+            put("isError", JsonPrimitive(isError))
+        },
+    )
 }
 
 /**

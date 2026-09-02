@@ -24,7 +24,7 @@ class BashModule(
                     "description",
                     JsonPrimitive(
                         "Execute a script in a restricted, in-memory virtual Bash environment on this Android device. " +
-                            "Use device, battery, wifi, bluetooth, and usb commands for Android capabilities; run each " +
+                            "Use device, battery, wifi, bluetooth, usb, and (in private builds) computer commands for Android capabilities; run each " +
                             "namespace with --help for discovery. Files last only for the current tunnel run. There is " +
                             "no Android filesystem, process, language-runtime, or network access.",
                     ),
@@ -86,7 +86,43 @@ class BashModule(
                 append("Command completed successfully.")
             }
         }
-        return JsonRpc.textToolResult(id, text, isError = result.exitCode != 0)
+        val acceptedSupplements = mutableListOf<MobileCommandSupplement>()
+        var resultBytes = text.toByteArray(Charsets.UTF_8).size
+        var omittedSupplements = 0
+        result.supplements.forEach { supplement ->
+            val supplementBytes = supplement.content.sumOf { it.toString().toByteArray(Charsets.UTF_8).size } +
+                (supplement.structuredContent?.toString()?.toByteArray(Charsets.UTF_8)?.size ?: 0)
+            if (resultBytes + supplementBytes <= MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES) {
+                acceptedSupplements += supplement
+                resultBytes += supplementBytes
+            } else {
+                omittedSupplements++
+            }
+        }
+        val finalText = if (omittedSupplements == 0) {
+            text
+        } else {
+            text + "\n[computer attachments omitted: $omittedSupplements; MCP result exceeds 4 MiB]\n"
+        }
+        val typedContent = buildList {
+            add(JsonRpc.textContent(finalText))
+            acceptedSupplements.flatMapTo(this) { it.content }
+        }
+        val structured = acceptedSupplements
+            .mapNotNull(MobileCommandSupplement::structuredContent)
+            .takeIf(List<JsonObject>::isNotEmpty)
+            ?.let { commandResults ->
+                buildJsonObject {
+                    put("exitCode", JsonPrimitive(result.exitCode))
+                    put("commandResults", buildJsonArray { commandResults.forEach(::add) })
+                }
+            }
+        return JsonRpc.toolResult(
+            id = id,
+            content = typedContent,
+            structuredContent = structured,
+            isError = result.exitCode != 0 || omittedSupplements > 0,
+        )
     }
 
     override fun close() {
@@ -100,5 +136,7 @@ class BashModule(
         const val NAME = "mobilebash"
         const val TOOL_NAME = "run"
         const val MAX_SCRIPT_BYTES = 64 * 1024
+        const val MAX_MCP_RESULT_BYTES = 4 * 1024 * 1024
+        private const val MCP_ENVELOPE_RESERVE_BYTES = 64 * 1024
     }
 }

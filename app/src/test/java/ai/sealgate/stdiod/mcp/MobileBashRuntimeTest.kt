@@ -1,6 +1,11 @@
 package ai.sealgate.stdiod.mcp
 
 import java.io.File
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -62,6 +67,10 @@ class MobileBashRuntimeTest {
             assertEquals(0, device.exitCode)
             assertEquals("87\n", device.stdout)
 
+            val unavailableComputer = runtime.execute("computer status")
+            assertTrue(unavailableComputer.exitCode != 0)
+            assertTrue(unavailableComputer.stderr.contains("computer: command not found"))
+
             assertEquals("set\n", runtime.execute("export TEMP=set; echo \"${'$'}TEMP\"").stdout)
             assertEquals("unset\n", runtime.execute("echo \"${'$'}{TEMP:-unset}\"").stdout)
 
@@ -86,6 +95,40 @@ class MobileBashRuntimeTest {
                     denied.stderr.contains("blocked by Mobile Bash policy"),
                 )
             }
+        } finally {
+            runtime.close()
+        }
+    }
+
+    @Test
+    fun typedMcpSupplementsCrossQuickJsAsOpaqueTokens() {
+        val probe = object : BaseMcpModule() {
+            override val name = "computer"
+            override fun toolDescriptors(): JsonElement = buildJsonArray {
+                add(buildJsonObject {
+                    put("name", JsonPrimitive("computer_observe"))
+                    put("description", JsonPrimitive("probe"))
+                    put("inputSchema", buildJsonObject {
+                        put("type", JsonPrimitive("object"))
+                        put("properties", buildJsonObject {})
+                    })
+                })
+            }
+            override fun callTool(id: JsonElement, toolName: String, arguments: JsonObject): JsonObject =
+                JsonRpc.toolResult(
+                    id,
+                    listOf(JsonRpc.textContent("{\"observationId\":\"obs_1\"}"), JsonRpc.imageContent("aA==", "image/png")),
+                    buildJsonObject { put("observationId", JsonPrimitive("obs_1")) },
+                )
+        }
+        val source = File("src/main/assets/mobile-bash-runtime.js").readText()
+        val runtime = QuickJsMobileBashRuntime({ source }, MobileCommandRouter(listOf(probe)))
+        try {
+            val result = runtime.execute("computer observe")
+            assertEquals(0, result.exitCode)
+            assertEquals(1, result.supplements.size)
+            assertEquals("\"image\"", result.supplements.single().content.single()["type"].toString())
+            assertEquals("\"obs_1\"", result.supplements.single().structuredContent!!["observationId"].toString())
         } finally {
             runtime.close()
         }

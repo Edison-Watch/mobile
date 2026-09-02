@@ -14,7 +14,15 @@
 
     <string name="status_stopped">Ready to connect</string>
     <string name="local_tools_label">Local tools</string>
-    <string name="local_tools_accessibility">Local tools: Device information, Battery, Wi-Fi, Bluetooth, and USB</string>
+    <string name="local_tools_accessibility">Local tools: Device information, Battery, Wi-Fi, Bluetooth, USB, and optional private computer control</string>
+    <string name="computer_control_title">Computer control</string>
+    <string name="computer_control_off">Off</string>
+    <string name="computer_control_needs_accessibility">On · enable Mobile Tunnel in Accessibility settings</string>
+    <string name="computer_control_ready">On · accessibility service connected</string>
+    <string name="computer_accessibility_label">Mobile Tunnel computer control</string>
+    <string name="computer_accessibility_summary">Allows an authorized private Mobile Bash session to observe and control visible Android apps.</string>
+    <string name="computer_accessibility_description">When computer control is enabled in Mobile Tunnel, this service can return screenshots and accessibility trees and can interact with visible apps. Available only in private, enterprise, and developer builds.</string>
+    <string name="action_disable_computer">Stop computer control</string>
     <string name="connection_settings_label">Connection setup</string>
 
     <string name="version_label">v%1$s  ·  %2$d</string>
@@ -32,6 +40,7 @@
     <string name="tunnel_channel_name">Mobile Tunnel</string>
     <string name="tunnel_channel_description">Ongoing status of the Mobile Tunnel secure bridge.</string>
     <string name="notification_route">Phone  →  SealGate</string>
+    <string name="notification_route_computer">Phone  →  SealGate · COMPUTER CONTROL ON</string>
     <string name="notification_diagram_description">Diagram showing a secure connection between this phone and the SealGate gateway.</string>
     <string name="tunnel_state_connected">Connected · Mobile Bash</string>
     <string name="tunnel_state_connecting">Opening tunnel</string>
