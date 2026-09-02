@@ -116,6 +116,10 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        binding.logsButton.setOnClickListener {
+            startActivity(Intent(this, ExecutionLogActivity::class.java))
+        }
+
         binding.connectionInfoButton.setOnClickListener {
             MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.connection_info_title)

@@ -241,7 +241,7 @@ class TunnelService : LifecycleService() {
             // notifications and stays far denser than a decorated RemoteViews panel.
             .setContentTitle(status)
             .setContentText(route)
-            .setSmallIcon(R.drawable.ic_stat_sealgate)
+            .setSmallIcon(R.drawable.ic_notification_sealgate_safe)
             .setLargeIcon(sealGateLogo)
             .setStyle(pictureStyle)
             .setColor(statusColor)
