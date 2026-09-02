@@ -142,6 +142,44 @@ class BashModuleTest {
         assertTrue(called.toString().toByteArray(Charsets.UTF_8).size <= BashModule.MAX_MCP_RESULT_BYTES)
     }
 
+    @Test
+    fun serializedBudgetIncludesTheRequestId() {
+        val requestId = "i".repeat(128 * 1024)
+        val module = BashModule(
+            runtimeFactory = { FakeRuntime(BashExecutionResult("\u0000".repeat(1024 * 1024), "", 0)) },
+        )
+        val called = module.handle(
+            Json.parseToJsonElement(
+                """{"jsonrpc":"2.0","id":${JsonPrimitive(requestId)},"method":"tools/call","params":{"name":"run","arguments":{"script":"escaped"}}}""",
+            ).jsonObject,
+        )!!
+
+        assertEquals(requestId, called["id"]!!.jsonPrimitive.content)
+        assertTrue(called.toString().toByteArray(Charsets.UTF_8).size <= BashModule.MAX_MCP_RESULT_BYTES)
+    }
+
+    @Test
+    fun truncationPreservesFailureDiagnostics() {
+        val called = BashModule(
+            runtimeFactory = {
+                FakeRuntime(
+                    BashExecutionResult(
+                        stdout = "\u0000".repeat(1024 * 1024),
+                        stderr = "critical failure\n",
+                        exitCode = 9,
+                    ),
+                )
+            },
+        ).handle(request(8, "tools/call", """{"name":"run","arguments":{"script":"fail"}}"""))!!
+        val result = called["result"]!!.jsonObject
+        val text = result["content"]!!.jsonArray.single().jsonObject["text"]!!.jsonPrimitive.content
+
+        assertTrue(result["isError"]!!.jsonPrimitive.content.toBoolean())
+        assertTrue(text.contains("[output truncated: MCP result exceeds 4 MiB]"))
+        assertTrue(text.endsWith("[stderr]\ncritical failure\n[exit code: 9]"))
+        assertTrue(called.toString().toByteArray(Charsets.UTF_8).size <= BashModule.MAX_MCP_RESULT_BYTES)
+    }
+
     private class FakeRuntime(private val result: BashExecutionResult) : MobileBashRuntime {
         var lastScript: String? = null
         override fun execute(script: String): BashExecutionResult {

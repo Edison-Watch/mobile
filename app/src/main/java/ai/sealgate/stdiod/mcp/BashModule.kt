@@ -1,6 +1,7 @@
 package ai.sealgate.stdiod.mcp
 
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -86,13 +87,22 @@ class BashModule(
                 append("Command completed successfully.")
             }
         }
-        val fittedText = fitTextToResultBudget(text)
+        val contentBudget = (MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES).toLong() -
+            id.toString().toByteArray(Charsets.UTF_8).size.toLong()
+        if (contentBudget <= serializedTextBytes(OUTPUT_TRUNCATED_NOTICE)) {
+            return JsonRpc.error(JsonNull, INVALID_REQUEST, "request id is too large")
+        }
+        val fittedText = fitTextToResultBudget(
+            text = text,
+            budget = contentBudget,
+            preserveTail = result.exitCode != 0,
+        )
         val acceptedSupplements = mutableListOf<MobileCommandSupplement>()
         var resultBytes = serializedTextBytes(fittedText.text)
         var omittedSupplements = 0
         result.supplements.forEach { supplement ->
             val supplementBytes = supplement.serializedBytes()
-            if (resultBytes + supplementBytes <= (MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES).toLong()) {
+            if (resultBytes + supplementBytes <= contentBudget) {
                 acceptedSupplements += supplement
                 resultBytes += supplementBytes
             } else {
@@ -126,22 +136,30 @@ class BashModule(
         )
     }
 
-    private fun fitTextToResultBudget(text: String): FittedText {
-        val budget = (MAX_MCP_RESULT_BYTES - MCP_ENVELOPE_RESERVE_BYTES).toLong()
+    private fun fitTextToResultBudget(text: String, budget: Long, preserveTail: Boolean): FittedText {
         if (serializedTextBytes(text) <= budget) return FittedText(text, truncated = false)
 
         var low = 0
         var high = text.length
         while (low < high) {
-            val candidateEnd = low + (high - low + 1) / 2
-            val candidate = safePrefix(text, candidateEnd) + OUTPUT_TRUNCATED_NOTICE
+            val keptCharacters = low + (high - low + 1) / 2
+            val candidate = truncatedText(text, keptCharacters, preserveTail)
             if (serializedTextBytes(candidate) <= budget) {
-                low = candidateEnd
+                low = keptCharacters
             } else {
-                high = candidateEnd - 1
+                high = keptCharacters - 1
             }
         }
-        return FittedText(safePrefix(text, low) + OUTPUT_TRUNCATED_NOTICE, truncated = true)
+        return FittedText(truncatedText(text, low, preserveTail), truncated = true)
+    }
+
+    private fun truncatedText(text: String, keptCharacters: Int, preserveTail: Boolean): String {
+        if (!preserveTail) return safePrefix(text, keptCharacters) + OUTPUT_TRUNCATED_NOTICE
+        val prefixCharacters = (keptCharacters + 1) / 2
+        val suffixCharacters = keptCharacters / 2
+        return safePrefix(text, prefixCharacters) +
+            OUTPUT_TRUNCATED_NOTICE +
+            safeSuffix(text, text.length - suffixCharacters)
     }
 
     private fun serializedTextBytes(text: String): Long =
@@ -159,6 +177,18 @@ class BashModule(
         return text.substring(0, end)
     }
 
+    private fun safeSuffix(text: String, requestedStart: Int): String {
+        var start = requestedStart.coerceIn(0, text.length)
+        if (
+            start in 1 until text.length &&
+            text[start - 1].isHighSurrogate() &&
+            text[start].isLowSurrogate()
+        ) {
+            start++
+        }
+        return text.substring(start)
+    }
+
     private data class FittedText(val text: String, val truncated: Boolean)
 
     override fun close() {
@@ -174,6 +204,7 @@ class BashModule(
         const val MAX_SCRIPT_BYTES = 64 * 1024
         const val MAX_MCP_RESULT_BYTES = 4 * 1024 * 1024
         private const val MCP_ENVELOPE_RESERVE_BYTES = 64 * 1024
+        private const val INVALID_REQUEST = -32600
         private const val OUTPUT_TRUNCATED_NOTICE = "\n[output truncated: MCP result exceeds 4 MiB]\n"
     }
 }
