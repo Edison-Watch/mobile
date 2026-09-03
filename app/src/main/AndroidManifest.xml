@@ -33,6 +33,15 @@
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
 
+    <!-- The camera module captures still photos headless (no preview UI)
+         after the in-app toggle is enabled and this runtime permission granted.
+         required=false so the app still installs on devices without a camera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+
     <!-- The usb module talks to devices plugged into the phone's USB port via
          the USB Host API (USB-OTG). This needs no runtime <uses-permission> -
          host access is granted per-device through a system dialog at runtime.
@@ -64,7 +73,7 @@
         <service
             android:name=".TunnelService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|camera" />
 
     </application>
 

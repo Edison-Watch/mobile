@@ -17,12 +17,14 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import ai.sealgate.stdiod.mcp.AndroidBatterySource
 import ai.sealgate.stdiod.mcp.AndroidBluetoothSource
+import ai.sealgate.stdiod.mcp.AndroidCameraSource
 import ai.sealgate.stdiod.mcp.AndroidDeviceInfo
 import ai.sealgate.stdiod.mcp.AndroidUsbSource
 import ai.sealgate.stdiod.mcp.AndroidWifiSource
 import ai.sealgate.stdiod.mcp.BatteryModule
 import ai.sealgate.stdiod.mcp.BashModule
 import ai.sealgate.stdiod.mcp.BluetoothModule
+import ai.sealgate.stdiod.mcp.CameraModule
 import ai.sealgate.stdiod.mcp.AndroidComputerSource
 import ai.sealgate.stdiod.mcp.ComputerAccessibilityService
 import ai.sealgate.stdiod.mcp.ComputerModule
@@ -124,6 +126,7 @@ class TunnelService : LifecycleService() {
             add(WifiModule(AndroidWifiSource(this@TunnelService)))
             add(BluetoothModule(AndroidBluetoothSource(this@TunnelService)))
             add(UsbModule(AndroidUsbSource(this@TunnelService)))
+            add(CameraModule(AndroidCameraSource(this@TunnelService)))
             if (BuildConfig.COMPUTER_USE_AVAILABLE) {
                 add(ComputerModule(AndroidComputerSource(this@TunnelService)))
             }

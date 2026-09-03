@@ -21,7 +21,7 @@ class CapabilityStripView @JvmOverloads constructor(
     private val cyan = context.getColor(R.color.core_cyan)
     private val grey = context.getColor(R.color.graphene_grey)
     private val outline = context.getColor(R.color.outline_dark)
-    private val labels = listOf("Device", "Battery", "Wi-Fi", "Bluetooth", "USB")
+    private val labels = listOf("Device", "Battery", "Wi-Fi", "Bluetooth", "USB", "Camera")
     private val density = resources.displayMetrics.density
 
     override fun onDraw(canvas: Canvas) {
@@ -91,7 +91,7 @@ class CapabilityStripView @JvmOverloads constructor(
                 canvas.drawPath(path, paint)
                 canvas.drawLine(x - s * 0.65f, y - s * 0.55f, x + s * 0.62f, y + s * 0.42f, paint)
             }
-            else -> {
+            4 -> {
                 canvas.drawLine(x, y - s, x, y + s * 0.58f, paint)
                 canvas.drawLine(x, y - s, x - s * 0.34f, y - s * 0.64f, paint)
                 canvas.drawLine(x, y - s, x + s * 0.34f, y - s * 0.64f, paint)
@@ -100,6 +100,12 @@ class CapabilityStripView @JvmOverloads constructor(
                 canvas.drawLine(x, y + s * 0.58f, x + s * 0.5f, y + s * 0.28f, paint)
                 paint.style = Paint.Style.FILL
                 canvas.drawRect(x + s * 0.38f, y + s * 0.16f, x + s * 0.62f, y + s * 0.4f, paint)
+            }
+            else -> {
+                canvas.drawRoundRect(RectF(x - s * 0.85f, y - s * 0.6f, x + s * 0.85f, y + s * 0.72f), 2f, 2f, paint)
+                canvas.drawCircle(x, y + s * 0.06f, s * 0.34f, paint)
+                paint.style = Paint.Style.FILL
+                canvas.drawCircle(x, y + s * 0.06f, s * 0.12f, paint)
             }
         }
     }

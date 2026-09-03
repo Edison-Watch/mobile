@@ -14,12 +14,16 @@
 
     <string name="status_stopped">Ready to connect</string>
     <string name="local_tools_label">Local tools</string>
-    <string name="local_tools_accessibility">Local tools: Device information, Battery, Wi-Fi, Bluetooth, USB, and optional private computer control</string>
+    <string name="local_tools_accessibility">Local tools: Device information, Battery, Wi-Fi, Bluetooth, USB, Camera, and optional private computer control</string>
     <string name="computer_control_title">Computer control</string>
     <string name="computer_control_off">Off</string>
     <string name="computer_control_needs_accessibility">On · enable Mobile Tunnel in Accessibility settings</string>
     <string name="computer_control_ready">On · accessibility service connected</string>
     <string name="action_disable_computer">Stop computer control</string>
+    <string name="camera_control_title">Camera</string>
+    <string name="camera_control_off">Off</string>
+    <string name="camera_control_needs_permission">On · grant Camera permission</string>
+    <string name="camera_control_ready">On · camera ready</string>
     <string name="connection_settings_label">Connection setup</string>
 
     <string name="version_label">v%1$s  ·  %2$d</string>

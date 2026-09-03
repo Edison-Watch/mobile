@@ -36,7 +36,7 @@ jq '.devices[] | select(.rssi > -70)' /tmp/scan.json
 ```
 
 Run `device --help`, `battery --help`, `wifi --help`, `bluetooth --help`,
-`usb --help`, or (in non-Play builds) `computer --help` to discover the Android CLI. It delegates to the same Kotlin
+`usb --help`, `camera --help`, or (in non-Play builds) `computer --help` to discover the Android CLI. It delegates to the same Kotlin
 capability modules, including Bluetooth and USB control operations, so Android runtime
 permissions and on-device permission dialogs still apply.
 
@@ -47,6 +47,7 @@ permissions and on-device permission dialogs still apply.
 | `wifi` | Wi-Fi connection status. |
 | `bluetooth` | BLE + classic Bluetooth: status, scan, GATT read/write, notify/indicate, RFCOMM/SPP, and pairing. |
 | `usb` | USB-OTG host access: enumerate devices, request permission, and raw bulk/control transfers. |
+| `camera` | Still-photo capture (`status`, `list`, `snap --lens front\|back --flash off\|on\|auto --zoom --width --height --quality`), returning the photo as a native MCP image. Off by default; enable the in-app toggle and grant the Camera permission. |
 | `computer` | Optional private-build cross-app observation and control, returning an MCP image and accessibility tree together. |
 
 Computer control is compiled into debug, private, and enterprise builds only;

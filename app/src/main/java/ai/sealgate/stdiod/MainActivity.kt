@@ -35,6 +35,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private var tunnelState: TunnelState? = null
     private var syncingComputerControlSwitch = false
+    private var syncingCameraSwitch = false
     private val computerUsePreferenceListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (
@@ -48,6 +49,9 @@ class MainActivity : AppCompatActivity() {
 
     private val requestNotifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* best effort */ }
+
+    private val requestCameraPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { renderCameraControl() }
 
     private val requestBluetoothPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* best effort */ }
@@ -86,6 +90,17 @@ class MainActivity : AppCompatActivity() {
             }
             renderComputerControl()
         }
+
+        binding.cameraControlSwitch.isChecked = CameraSettings.isEnabled(this)
+        binding.cameraControlSwitch.setOnCheckedChangeListener { _, enabled ->
+            if (syncingCameraSwitch) return@setOnCheckedChangeListener
+            CameraSettings.setEnabled(this, enabled)
+            renderCameraControl()
+            if (enabled && !hasCameraPermission()) {
+                requestCameraPermission.launch(Manifest.permission.CAMERA)
+            }
+        }
+        renderCameraControl()
 
         binding.swipeRefresh.setColorSchemeResources(R.color.core_cyan)
         binding.swipeRefresh.setProgressBackgroundColorSchemeResource(R.color.baseline_black)
@@ -180,6 +195,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         if (BuildConfig.COMPUTER_USE_AVAILABLE && ::binding.isInitialized) renderComputerControl()
+        if (::binding.isInitialized) renderCameraControl()
     }
 
     override fun onStart() {
@@ -217,6 +233,29 @@ class MainActivity : AppCompatActivity() {
             },
         )
     }
+
+    private fun renderCameraControl() {
+        val enabled = CameraSettings.isEnabled(this)
+        if (binding.cameraControlSwitch.isChecked != enabled) {
+            syncingCameraSwitch = true
+            try {
+                binding.cameraControlSwitch.isChecked = enabled
+            } finally {
+                syncingCameraSwitch = false
+            }
+        }
+        binding.cameraControlStatus.setText(
+            when {
+                !enabled -> R.string.camera_control_off
+                hasCameraPermission() -> R.string.camera_control_ready
+                else -> R.string.camera_control_needs_permission
+            },
+        )
+    }
+
+    private fun hasCameraPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
 
     private fun renderState(state: TunnelState?, text: String) {
         val stateColor = ContextCompat.getColor(
