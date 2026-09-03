@@ -45,9 +45,9 @@ sealed interface TunnelState {
  * lifetime.
  *
  * Unlike the desktop daemon there is no process supervision: `mcp_frame`s
- * route to in-process [LocalMcpModule]s by server name, and desired-state
- * entries that don't match a built-in module are refused with a spawn error
- * (a phone cannot run `npx`).
+ * route to in-process [LocalMcpModule]s bound from the desired state (by
+ * prefix, or by the `mobile-builtin` command), and entries that match no
+ * built-in module are refused with a spawn error (a phone cannot run `npx`).
  */
 class TunnelClient(
     private val gatewayUrl: String,
@@ -218,8 +218,10 @@ class TunnelClient(
     /**
      * Bind desired servers to built-in modules and ack each spawn the way
      * the desktop daemon's supervisor does — except "spawning" here is a
-     * name lookup. Unknown names are refused loudly so the dashboard's
-     * create-server flow gets a real error instead of a timeout.
+     * lookup (see [resolveBuiltinModule]: by prefix, else by the
+     * `mobile-builtin` command). Unmatched servers are refused loudly so
+     * the dashboard's create-server flow gets a real error instead of a
+     * timeout.
      */
     private fun bindServers(webSocket: WebSocket, servers: List<DesiredServer>) {
         if (stopped.get()) return
@@ -228,7 +230,7 @@ class TunnelClient(
                 modulesByServerId.remove(server.serverId)
                 continue
             }
-            val module = modulesByName[server.name]
+            val module = resolveBuiltinModule(server, modulesByName)
             if (module != null) {
                 modulesByServerId[server.serverId] = module
                 send(webSocket, ServerSpawnResult(serverId = server.serverId, ok = true))
@@ -239,8 +241,7 @@ class TunnelClient(
                     ServerSpawnResult(
                         serverId = server.serverId,
                         ok = false,
-                        error = "no built-in module named `${server.name}` on this Android device; " +
-                            "available: ${modulesByName.keys.sorted()}",
+                        error = describeUnboundServer(server, modulesByName.keys),
                     ),
                 )
             }
