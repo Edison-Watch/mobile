@@ -5,7 +5,7 @@ Caveman-terse. Android client for SealGate stdio tunnel. Details: README.md.
 ## What
 - Device daemon. Outbound WebSocket to backend. Cloud agents reach local MCP servers.
 - No subprocesses. `mcp_frame` -> in-process `LocalMcpModule` (`app/.../mcp/`). Unknown name -> spawn error.
-- Mobile Bash is the only MCP surface: prefix `mobilebash`, one `run` tool, dashboard display name `Mobile Bash`, command `mobile-builtin`. Pinned just-bash browser bundle in QuickJS, in-memory FS only. Source/build recipe: `tools/bash-runtime/`; generated asset is checked in.
+- Mobile Bash is the only MCP surface: one `run` tool, dashboard display name `Mobile Bash`, command `mobile-builtin`. Default prefix `mobilebash`, but binding is by command (`tunnel/BuiltinServerBinding.kt`): prefixes are org-unique, so any prefix must work. Pinned just-bash browser bundle in QuickJS, in-memory FS only. Source/build recipe: `tools/bash-runtime/`; generated asset is checked in.
 - Kotlin, JDK 17. Android Views, no Compose. Single module `:app`, ns `ai.sealgate.stdiod`.
 
 ## ❗ Environment (NOT discoverable from code — read this)

@@ -20,7 +20,11 @@ daemon spawns `npx`/`uvx` subprocesses, this app answers MCP requests from
 
 ### Mobile Bash
 
-The app exposes one built-in MCP server whose SealGate prefix is `mobilebash`.
+The app exposes one built-in MCP server, conventionally registered under the
+SealGate prefix `mobilebash`. The prefix is only a label: the dashboard
+command `mobile-builtin` is what binds a server to this module, so any prefix
+works (prefixes are unique per organisation, so a second phone in the same org
+needs a different one).
 Its single `run` tool executes the required `script` argument
 inside a restricted [just-bash](https://github.com/vercel-labs/just-bash)
 environment:
@@ -99,6 +103,9 @@ per-file limit, and 32 MiB total virtual filesystem limit.
    In the SealGate dashboard, add one local server for the device with display
    name **Mobile Bash**, MCP prefix `mobilebash`, and command `mobile-builtin`.
    No arguments are required. The resulting agent tool is `mobilebash_run`.
+   If `mobilebash` is already taken in your organisation, pick any other
+   prefix (say `mobilebash-alice`); the command is what matters, and the tool
+   becomes `<prefix>_run`.
 
 While the service runs, it posts an ongoing notification:
 
