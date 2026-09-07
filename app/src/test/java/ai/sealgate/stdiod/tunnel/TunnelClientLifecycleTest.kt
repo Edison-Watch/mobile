@@ -20,7 +20,11 @@ class TunnelClientLifecycleTest {
         val release = CountDownLatch(1)
         assertTrue(dispatcher.submit {
             running.countDown()
-            release.await()
+            try {
+                release.await()
+            } catch (_: InterruptedException) {
+                // Dispatcher shutdown interrupts the simulated in-flight work.
+            }
         })
         assertTrue(running.await(1, TimeUnit.SECONDS))
         repeat(MCP_REQUEST_QUEUE_CAPACITY) { assertTrue(dispatcher.submit {}) }

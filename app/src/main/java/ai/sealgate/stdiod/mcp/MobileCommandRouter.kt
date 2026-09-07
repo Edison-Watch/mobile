@@ -123,11 +123,13 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
             .joinToString("\n")
         val typedContent = content.filter { it["type"]?.jsonPrimitive?.content != "text" }
         val structuredContent = result["structuredContent"] as? JsonObject
-        val supplementToken = if (typedContent.isNotEmpty() || structuredContent != null) {
+        // Status is already emitted as complete JSON text. Retaining its duplicate
+        // structured payload would make polling grow an invisible side channel.
+        val isComputerStatus = spec.module == ComputerModule.NAME && spec.tool == "computer_status"
+        val supplementToken = if (typedContent.isNotEmpty() || structuredContent != null && !isComputerStatus) {
             retainSupplement(
                 MobileCommandSupplement(typedContent, structuredContent),
-                replacePreviousComputerObservation =
-                    spec.module == ComputerModule.NAME && spec.tool != "computer_status",
+                replacePreviousComputerObservation = spec.module == ComputerModule.NAME,
             )
         } else {
             null

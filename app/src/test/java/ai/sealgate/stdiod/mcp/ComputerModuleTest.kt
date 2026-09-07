@@ -86,18 +86,18 @@ class ComputerModuleTest {
     }
 
     @Test
-    fun computerStatusDoesNotReplaceTheLatestObservation() {
+    fun repeatedComputerStatusDoesNotAccumulateOrReplaceTheLatestObservation() {
         val router = MobileCommandRouter(listOf(ComputerModule(FakeComputerSource())))
 
         val observation = router.execute("computer", listOf("observe"))
-        val status = router.execute("computer", listOf("status"))
+        val statuses = List(65) { router.execute("computer", listOf("status")) }
 
         assertEquals(0, observation.exitCode)
-        assertEquals(0, status.exitCode)
-        val supplements = router.takeSupplements(listOf(observation.supplementToken!!, status.supplementToken!!))
-        assertEquals(2, supplements.size)
-        assertEquals("image", supplements.first().content.single()["type"]!!.jsonPrimitive.content)
-        assertTrue(supplements.last().content.isEmpty())
+        assertTrue(statuses.all { it.exitCode == 0 })
+        assertTrue(statuses.all { it.supplementToken == null })
+        val supplement = router.takeSupplements(listOf(observation.supplementToken!!)).single()
+        assertEquals("image", supplement.content.single()["type"]!!.jsonPrimitive.content)
+        assertEquals("obs_1", supplement.structuredContent!!["observationId"]!!.jsonPrimitive.content)
     }
 
     @Test
