@@ -50,10 +50,10 @@ class LiquidMetalBorderView(context: Context) : View(context) {
         strokeWidth = borderWidthPx
     }
 
-    private val frameCallback = Choreographer.FrameCallback {
+    private val frameCallback: Choreographer.FrameCallback = Choreographer.FrameCallback {
         if (!animating) return@FrameCallback
         invalidate()
-        Choreographer.getInstance().postFrameCallback(this.frameCallback)
+        Choreographer.getInstance().postFrameCallback(frameCallback)
     }
 
     init {
