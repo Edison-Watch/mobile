@@ -24,7 +24,8 @@ class BashModule(
                 put(
                     "description",
                     JsonPrimitive(
-                        "Execute a script in a restricted, in-memory virtual Bash environment on this Android device. " +
+                        "Execute a script in a virtual, in-memory Bash environment on this Android device. " +
+                            "This is a limited Bash only: no Python or any other language runtime, and only a restricted subset of Bash. " +
                             "Use device, battery, wifi, bluetooth, usb, camera, and (in private builds) computer commands for Android capabilities; run each " +
                             "namespace with --help for discovery. Files last only for the current tunnel run. There is " +
                             "no Android filesystem, process, language-runtime, or network access.",
