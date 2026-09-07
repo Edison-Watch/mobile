@@ -16,6 +16,9 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.concurrent.thread
@@ -60,7 +63,7 @@ class TunnelClient(
     private val modulesByName: Map<String, LocalMcpModule> = modules.associateBy { it.name }
 
     /** server_id (backend's key for `mcp_frame`s) → built-in module. */
-    private val modulesByServerId = HashMap<String, LocalMcpModule>()
+    private val modulesByServerId = ConcurrentHashMap<String, LocalMcpModule>()
 
     private val _state = MutableStateFlow<TunnelState>(TunnelState.Disconnected)
     val state: StateFlow<TunnelState> = _state
@@ -71,6 +74,9 @@ class TunnelClient(
     private val modulesClosed = AtomicBoolean(false)
     private val modulesCloseFinished = CompletableDeferred<Unit>()
     private val moduleLock = Any()
+    private val moduleExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "mobile-mcp-requests").apply { isDaemon = true }
+    }
 
     fun start() {
         if (stopped.get()) return
@@ -84,6 +90,7 @@ class TunnelClient(
         loopJob = null
         webSocket?.close(NORMAL_CLOSURE, "client stopping")
         webSocket = null
+        moduleExecutor.shutdownNow()
         if (modulesClosed.compareAndSet(false, true)) {
             // A QuickJS evaluation may hold its runtime lock until the 60-second
             // execution limit. Never make the service/main thread wait for it.
@@ -179,7 +186,17 @@ class TunnelClient(
                         bindServers(webSocket, frame.added + frame.updated)
                         frame.removed.forEach(modulesByServerId::remove)
                     }
-                    is McpFrame -> routeMcpFrame(webSocket, frame)
+                    is McpFrame -> {
+                        // Local modules may perform gestures, screenshots, or a
+                        // full Bash script. Never run them on OkHttp's reader
+                        // callback: doing so prevents WebSocket control frames
+                        // and unrelated tunnel messages from being processed.
+                        try {
+                            moduleExecutor.execute { routeMcpFrame(webSocket, frame) }
+                        } catch (_: RejectedExecutionException) {
+                            // The client was stopped between parsing and queueing.
+                        }
+                    }
                     is Ping -> send(webSocket, Pong)
                     is Pong -> Unit
                     // Built-in modules have no spawn-time env/spec to store.

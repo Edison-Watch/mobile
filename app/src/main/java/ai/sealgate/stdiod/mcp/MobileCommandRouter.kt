@@ -52,6 +52,7 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
     private val supplementLock = Any()
     private val supplements = LinkedHashMap<String, MobileCommandSupplement>()
     private var pendingSupplementBytes = 0L
+    private var latestComputerSupplementToken: String? = null
 
     init {
         val mappedTools = SPECS.map(CommandSpec::tool).toSet()
@@ -123,7 +124,10 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
         val typedContent = content.filter { it["type"]?.jsonPrimitive?.content != "text" }
         val structuredContent = result["structuredContent"] as? JsonObject
         val supplementToken = if (typedContent.isNotEmpty() || structuredContent != null) {
-            retainSupplement(MobileCommandSupplement(typedContent, structuredContent))
+            retainSupplement(
+                MobileCommandSupplement(typedContent, structuredContent),
+                replacePreviousComputerObservation = spec.module == ComputerModule.NAME,
+            )
         } else {
             null
         }
@@ -138,6 +142,7 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
     fun clearSupplements() = synchronized(supplementLock) {
         supplements.clear()
         pendingSupplementBytes = 0L
+        latestComputerSupplementToken = null
     }
 
     fun availableNamespacesJson(): String = buildJsonArray {
@@ -152,18 +157,39 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
         tokens.mapNotNull(supplements::remove).also {
             supplements.clear()
             pendingSupplementBytes = 0L
+            latestComputerSupplementToken = null
         }
     }
 
-    private fun retainSupplement(supplement: MobileCommandSupplement): String = synchronized(supplementLock) {
-        check(supplements.size < MAX_PENDING_SUPPLEMENTS) { "too many pending mobile command attachments" }
+    private fun retainSupplement(
+        supplement: MobileCommandSupplement,
+        replacePreviousComputerObservation: Boolean,
+    ): String = synchronized(supplementLock) {
         val supplementBytes = supplement.serializedBytes()
+        check(supplementBytes <= MAX_PENDING_SUPPLEMENT_BYTES) {
+            "mobile command attachment exceeds 4 MiB"
+        }
+        // A shell script can perform many observation-producing actions while
+        // redirecting their textual output. Typed MCP attachments do not flow
+        // through Bash file descriptors, so retaining every one would grow an
+        // invisible side channel until the script failed. Keep only the most
+        // recent computer observation: it represents the device state after
+        // the latest action and bounds loops independently of their length.
+        // Other typed results (for example multiple camera snapshots) retain
+        // their existing multi-attachment behavior.
+        if (replacePreviousComputerObservation) {
+            latestComputerSupplementToken?.let(supplements::remove)?.let { previous ->
+                pendingSupplementBytes -= previous.serializedBytes()
+            }
+        }
+        check(supplements.size < MAX_PENDING_SUPPLEMENTS) { "too many pending mobile command attachments" }
         check(supplementBytes <= MAX_PENDING_SUPPLEMENT_BYTES - pendingSupplementBytes) {
             "pending mobile command attachments exceed 4 MiB"
         }
         val token = nextSupplementId.incrementAndGet().toString()
         supplements[token] = supplement
         pendingSupplementBytes += supplementBytes
+        if (replacePreviousComputerObservation) latestComputerSupplementToken = token
         token
     }
 

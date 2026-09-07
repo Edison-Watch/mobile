@@ -52,6 +52,27 @@ class UiSettlerTest {
     }
 
     @Test
+    fun completedGestureCanSettleWithoutAUiTransition() {
+        var now = 1_000L
+        val baseline = marker(sequence = 7, eventAt = 100, packageName = "same", windowId = 1)
+        val settler = UiSettler(
+            uptimeMillis = { now },
+            sleepMillis = { now += it },
+            quietMillis = 300L,
+            pollMillis = 50L,
+            timeoutMillis = 2_000L,
+        )
+
+        val result = settler.awaitPostAction(baseline, requireTransition = false) { baseline }
+
+        assertTrue(result.settled)
+        assertFalse(result.postActionEventObserved)
+        assertFalse(result.activeWindowChanged)
+        assertTrue(now >= 1_300L)
+        assertTrue(now < 3_000L)
+    }
+
+    @Test
     fun sameWindowContentEventCanSettleWithoutWindowIdentityChange() {
         var now = 1_000L
         val baseline = marker(sequence = 3, eventAt = 500, packageName = "settings", windowId = 4)

@@ -66,7 +66,7 @@ class ComputerModuleTest {
     }
 
     @Test
-    fun routerBoundsPendingSupplementsBySerializedBytes() {
+    fun routerKeepsOnlyTheLatestPendingSupplement() {
         val source = FakeComputerSource().apply {
             screenshotData = "a".repeat((MobileCommandRouter.MAX_PENDING_SUPPLEMENT_BYTES / 2 + 1024).toInt())
         }
@@ -77,8 +77,10 @@ class ComputerModuleTest {
         val second = Json.parseToJsonElement(router.executeJson(request)).jsonObject
 
         assertEquals(0, first["exitCode"]!!.jsonPrimitive.content.toInt())
-        assertEquals(1, second["exitCode"]!!.jsonPrimitive.content.toInt())
-        assertTrue(second["stderr"]!!.jsonPrimitive.content.contains("attachments exceed 4 MiB"))
+        assertEquals(0, second["exitCode"]!!.jsonPrimitive.content.toInt())
+        val firstToken = first["supplementToken"]!!.jsonPrimitive.content
+        val secondToken = second["supplementToken"]!!.jsonPrimitive.content
+        assertTrue(router.takeSupplements(listOf(firstToken, secondToken)).size == 1)
         router.clearSupplements()
     }
 
