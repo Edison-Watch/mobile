@@ -1,5 +1,6 @@
 package ai.sealgate.stdiod.mcp
 
+import ai.sealgate.stdiod.ExecutionLogStore
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -77,7 +78,19 @@ class BashModule(
             return JsonRpc.error(JsonNull, INVALID_REQUEST, "request id is too large")
         }
 
-        val result = runtime.execute(script)
+        val logId = ExecutionLogStore.begin(script)
+        val result = try {
+            runtime.execute(script)
+        } catch (error: Exception) {
+            ExecutionLogStore.fail(logId, error)
+            throw error
+        }
+        ExecutionLogStore.finish(
+            id = logId,
+            stdout = result.stdout,
+            stderr = result.stderr,
+            exitCode = result.exitCode,
+        )
         val text = buildString {
             if (result.stdout.isNotEmpty()) append(result.stdout)
             if (result.stderr.isNotEmpty()) {
