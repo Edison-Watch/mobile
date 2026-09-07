@@ -40,8 +40,11 @@ class ComputerAccessibilityService : AccessibilityService() {
     internal var lastEventUptimeMillis: Long = 0L
         private set
 
+    private var borderOverlay: ComputerUseBorderOverlay? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        borderOverlay = ComputerUseBorderOverlay(this)
         active = this
     }
 
@@ -52,14 +55,23 @@ class ComputerAccessibilityService : AccessibilityService() {
 
     internal fun eventSequence(): Long = eventSequence.get()
 
+    /** Show/refresh the on-screen "liquid metal" activity frame for [mode]. */
+    internal fun signalComputerActivity(mode: ComputerUseBorderOverlay.Mode) {
+        borderOverlay?.signal(mode)
+    }
+
     override fun onInterrupt() = Unit
 
     override fun onUnbind(intent: Intent?): Boolean {
+        borderOverlay?.destroy()
+        borderOverlay = null
         if (active === this) active = null
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
+        borderOverlay?.destroy()
+        borderOverlay = null
         if (active === this) active = null
         super.onDestroy()
     }
@@ -115,6 +127,7 @@ class AndroidComputerSource(context: Context) : ComputerSource {
 
     override fun observe(): ComputerOperationResult {
         val service = availableService() ?: return unavailableResult()
+        service.signalComputerActivity(ComputerUseBorderOverlay.Mode.OBSERVE)
         return captureObservation(service)
     }
 
@@ -227,6 +240,7 @@ class AndroidComputerSource(context: Context) : ComputerSource {
 
     private inline fun withService(block: (ComputerAccessibilityService) -> ComputerOperationResult): ComputerOperationResult {
         val service = availableService() ?: return unavailableResult()
+        service.signalComputerActivity(ComputerUseBorderOverlay.Mode.CONTROL)
         return block(service)
     }
 
