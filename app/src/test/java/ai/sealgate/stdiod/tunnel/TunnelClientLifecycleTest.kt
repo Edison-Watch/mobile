@@ -9,9 +9,50 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class TunnelClientLifecycleTest {
+    @Test
+    fun requestDispatcherRejectsWorkWhenItsBoundedQueueIsFull() {
+        val dispatcher = McpRequestDispatcher()
+        val running = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        assertTrue(dispatcher.submit {
+            running.countDown()
+            release.await()
+        })
+        assertTrue(running.await(1, TimeUnit.SECONDS))
+        repeat(MCP_REQUEST_QUEUE_CAPACITY) { assertTrue(dispatcher.submit {}) }
+
+        assertFalse(dispatcher.submit {})
+        release.countDown()
+        dispatcher.close()
+    }
+
+    @Test
+    fun closingRequestDispatcherDropsQueuedSessionWork() {
+        val dispatcher = McpRequestDispatcher()
+        val running = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val queuedRan = CountDownLatch(1)
+        assertTrue(dispatcher.submit {
+            running.countDown()
+            try {
+                release.await()
+            } catch (_: InterruptedException) {
+                // The simulated in-flight module is released below.
+            }
+        })
+        assertTrue(running.await(1, TimeUnit.SECONDS))
+        assertTrue(dispatcher.submit { queuedRan.countDown() })
+
+        dispatcher.close()
+        release.countDown()
+
+        assertFalse(queuedRan.await(200, TimeUnit.MILLISECONDS))
+    }
+
     @Test
     fun stopReturnsImmediatelyAndStopAndAwaitObservesModuleTeardown() {
         val closed = CountDownLatch(1)

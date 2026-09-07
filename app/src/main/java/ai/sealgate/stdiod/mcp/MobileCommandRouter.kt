@@ -126,7 +126,8 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
         val supplementToken = if (typedContent.isNotEmpty() || structuredContent != null) {
             retainSupplement(
                 MobileCommandSupplement(typedContent, structuredContent),
-                replacePreviousComputerObservation = spec.module == ComputerModule.NAME,
+                replacePreviousComputerObservation =
+                    spec.module == ComputerModule.NAME && spec.tool != "computer_status",
             )
         } else {
             null
@@ -177,14 +178,18 @@ class MobileCommandRouter(modules: List<BaseMcpModule>) {
         // the latest action and bounds loops independently of their length.
         // Other typed results (for example multiple camera snapshots) retain
         // their existing multi-attachment behavior.
-        if (replacePreviousComputerObservation) {
-            latestComputerSupplementToken?.let(supplements::remove)?.let { previous ->
-                pendingSupplementBytes -= previous.serializedBytes()
-            }
-        }
-        check(supplements.size < MAX_PENDING_SUPPLEMENTS) { "too many pending mobile command attachments" }
-        check(supplementBytes <= MAX_PENDING_SUPPLEMENT_BYTES - pendingSupplementBytes) {
+        val previousToken = latestComputerSupplementToken.takeIf { replacePreviousComputerObservation }
+        val previous = previousToken?.let(supplements::get)
+        val previousBytes = previous?.serializedBytes() ?: 0L
+        val projectedCount = supplements.size - if (previous == null) 0 else 1
+        val projectedBytes = pendingSupplementBytes - previousBytes + supplementBytes
+        check(projectedCount < MAX_PENDING_SUPPLEMENTS) { "too many pending mobile command attachments" }
+        check(projectedBytes <= MAX_PENDING_SUPPLEMENT_BYTES) {
             "pending mobile command attachments exceed 4 MiB"
+        }
+        if (previousToken != null && previous != null) {
+            supplements.remove(previousToken)
+            pendingSupplementBytes -= previousBytes
         }
         val token = nextSupplementId.incrementAndGet().toString()
         supplements[token] = supplement
