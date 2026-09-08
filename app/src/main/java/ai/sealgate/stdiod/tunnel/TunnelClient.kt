@@ -16,7 +16,12 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.concurrent.thread
 import kotlin.random.Random
@@ -60,7 +65,7 @@ class TunnelClient(
     private val modulesByName: Map<String, LocalMcpModule> = modules.associateBy { it.name }
 
     /** server_id (backend's key for `mcp_frame`s) → built-in module. */
-    private val modulesByServerId = HashMap<String, LocalMcpModule>()
+    private val modulesByServerId = ConcurrentHashMap<String, LocalMcpModule>()
 
     private val _state = MutableStateFlow<TunnelState>(TunnelState.Disconnected)
     val state: StateFlow<TunnelState> = _state
@@ -71,6 +76,7 @@ class TunnelClient(
     private val modulesClosed = AtomicBoolean(false)
     private val modulesCloseFinished = CompletableDeferred<Unit>()
     private val moduleLock = Any()
+    private val activeDispatcher = AtomicReference<McpRequestDispatcher?>()
 
     fun start() {
         if (stopped.get()) return
@@ -84,6 +90,7 @@ class TunnelClient(
         loopJob = null
         webSocket?.close(NORMAL_CLOSURE, "client stopping")
         webSocket = null
+        activeDispatcher.getAndSet(null)?.close()
         if (modulesClosed.compareAndSet(false, true)) {
             // A QuickJS evaluation may hold its runtime lock until the 60-second
             // execution limit. Never make the service/main thread wait for it.
@@ -131,6 +138,9 @@ class TunnelClient(
 
     /** Runs one WebSocket session to completion. Returns true if `server_hello` arrived. */
     private suspend fun runOneConnection(): Boolean = suspendCancellableCoroutine { cont ->
+        val sessionActive = AtomicBoolean(true)
+        val dispatcher = McpRequestDispatcher()
+        activeDispatcher.getAndSet(dispatcher)?.close()
         val request = Request.Builder()
             .url(gatewayUrl)
             .header("Authorization", "Bearer $authToken")
@@ -179,7 +189,24 @@ class TunnelClient(
                         bindServers(webSocket, frame.added + frame.updated)
                         frame.removed.forEach(modulesByServerId::remove)
                     }
-                    is McpFrame -> routeMcpFrame(webSocket, frame)
+                    is McpFrame -> {
+                        // Local modules may perform gestures, screenshots, or a
+                        // full Bash script. Never run them on OkHttp's reader
+                        // callback: doing so prevents WebSocket control frames
+                        // and unrelated tunnel messages from being processed.
+                        // Resolve the binding at receipt time. A later desired-state
+                        // update must not retroactively change an earlier request.
+                        val module = modulesByServerId[frame.serverId] ?: modulesByName[frame.serverId]
+                        if (!dispatcher.submit {
+                                routeMcpFrame(webSocket, frame, module, sessionActive)
+                            }
+                        ) {
+                            // Backpressure is explicit: retaining an unbounded number
+                            // of long-running requests would eventually exhaust memory.
+                            webSocket.close(TRY_AGAIN_LATER, "MCP request queue full")
+                            finish()
+                        }
+                    }
                     is Ping -> send(webSocket, Pong)
                     is Pong -> Unit
                     // Built-in modules have no spawn-time env/spec to store.
@@ -205,6 +232,9 @@ class TunnelClient(
             }
 
             fun finish() {
+                if (!sessionActive.compareAndSet(true, false)) return
+                dispatcher.close()
+                activeDispatcher.compareAndSet(dispatcher, null)
                 this@TunnelClient.webSocket = null
                 modulesByServerId.clear()
                 if (cont.isActive) cont.resume(sawServerHello)
@@ -212,7 +242,12 @@ class TunnelClient(
         }
 
         val socket = httpClient.newWebSocket(request, listener)
-        cont.invokeOnCancellation { socket.cancel() }
+        cont.invokeOnCancellation {
+            sessionActive.set(false)
+            dispatcher.close()
+            activeDispatcher.compareAndSet(dispatcher, null)
+            socket.cancel()
+        }
     }
 
     /**
@@ -248,10 +283,13 @@ class TunnelClient(
         }
     }
 
-    private fun routeMcpFrame(webSocket: WebSocket, frame: McpFrame) {
-        // Accept a module addressed by bare name too, so a backend that keys
-        // built-ins by name (and tests) can skip the desired-state handshake.
-        val module = modulesByServerId[frame.serverId] ?: modulesByName[frame.serverId]
+    private fun routeMcpFrame(
+        webSocket: WebSocket,
+        frame: McpFrame,
+        module: LocalMcpModule?,
+        sessionActive: AtomicBoolean,
+    ) {
+        if (!sessionActive.get() || stopped.get()) return
         if (module == null) {
             send(
                 webSocket,
@@ -264,10 +302,10 @@ class TunnelClient(
             return
         }
         val response = synchronized(moduleLock) {
-            if (stopped.get()) return
+            if (!sessionActive.get() || stopped.get()) return
             module.handle(frame.frame)
         } ?: return
-        if (stopped.get()) return
+        if (!sessionActive.get() || stopped.get()) return
         send(webSocket, McpFrame(serverId = frame.serverId, frame = response))
     }
 
@@ -278,6 +316,7 @@ class TunnelClient(
     companion object {
         private const val TAG = "TunnelClient"
         private const val NORMAL_CLOSURE = 1000
+        private const val TRY_AGAIN_LATER = 1013
         private const val INITIAL_BACKOFF_MILLIS = 1_000L
         private const val MAX_BACKOFF_MILLIS = 60_000L
 
@@ -288,5 +327,31 @@ class TunnelClient(
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .pingInterval(30, TimeUnit.SECONDS)
             .build()
+    }
+}
+
+internal const val MCP_REQUEST_QUEUE_CAPACITY = 16
+
+/** A bounded, session-scoped serial dispatcher for potentially slow module calls. */
+internal class McpRequestDispatcher {
+    private val executor = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(MCP_REQUEST_QUEUE_CAPACITY),
+        { runnable -> Thread(runnable, "mobile-mcp-requests").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy(),
+    )
+
+    fun submit(task: () -> Unit): Boolean = try {
+        executor.execute(task)
+        true
+    } catch (_: RejectedExecutionException) {
+        false
+    }
+
+    fun close() {
+        executor.shutdownNow()
     }
 }

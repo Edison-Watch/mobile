@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -129,6 +130,88 @@ class MobileBashRuntimeTest {
             assertEquals(1, result.supplements.size)
             assertEquals("\"image\"", result.supplements.single().content.single()["type"].toString())
             assertEquals("\"obs_1\"", result.supplements.single().structuredContent!!["observationId"].toString())
+        } finally {
+            runtime.close()
+        }
+    }
+
+    @Test
+    fun repeatedRedirectedObservationsKeepOnlyTheLatestAttachment() {
+        var observation = 0
+        val probe = object : BaseMcpModule() {
+            override val name = "computer"
+            override fun toolDescriptors(): JsonElement = buildJsonArray {
+                add(buildJsonObject {
+                    put("name", JsonPrimitive("computer_observe"))
+                    put("description", JsonPrimitive("probe"))
+                    put("inputSchema", buildJsonObject {
+                        put("type", JsonPrimitive("object"))
+                        put("properties", buildJsonObject {})
+                    })
+                })
+            }
+            override fun callTool(id: JsonElement, toolName: String, arguments: JsonObject): JsonObject {
+                observation++
+                return JsonRpc.toolResult(
+                    id,
+                    listOf(
+                        JsonRpc.textContent("observation $observation"),
+                        JsonRpc.imageContent("a".repeat(1024 * 1024), "image/jpeg"),
+                    ),
+                    buildJsonObject { put("observationId", JsonPrimitive("obs_$observation")) },
+                )
+            }
+        }
+        val source = File("src/main/assets/mobile-bash-runtime.js").readText()
+        val runtime = QuickJsMobileBashRuntime({ source }, MobileCommandRouter(listOf(probe)))
+        try {
+            val result = runtime.execute(
+                "for i in ${'$'}(seq 1 17); do computer observe > /tmp/observation; done; computer observe",
+            )
+
+            assertEquals(0, result.exitCode)
+            assertEquals(18, observation)
+            assertEquals(1, result.supplements.size)
+            assertEquals(
+                "obs_18",
+                result.supplements.single().structuredContent!!["observationId"]!!.jsonPrimitive.content,
+            )
+        } finally {
+            runtime.close()
+        }
+    }
+
+    @Test
+    fun nonComputerAttachmentsStillAccumulateWithinTheExistingBudget() {
+        var snapshot = 0
+        val probe = object : BaseMcpModule() {
+            override val name = "camera"
+            override fun toolDescriptors(): JsonElement = buildJsonArray {
+                add(buildJsonObject {
+                    put("name", JsonPrimitive("camera_snap"))
+                    put("description", JsonPrimitive("probe"))
+                    put("inputSchema", buildJsonObject {
+                        put("type", JsonPrimitive("object"))
+                        put("properties", buildJsonObject {})
+                    })
+                })
+            }
+            override fun callTool(id: JsonElement, toolName: String, arguments: JsonObject): JsonObject {
+                snapshot++
+                return JsonRpc.toolResult(
+                    id,
+                    listOf(JsonRpc.imageContent("aA==", "image/jpeg")),
+                    buildJsonObject { put("snapshot", JsonPrimitive(snapshot)) },
+                )
+            }
+        }
+        val source = File("src/main/assets/mobile-bash-runtime.js").readText()
+        val runtime = QuickJsMobileBashRuntime({ source }, MobileCommandRouter(listOf(probe)))
+        try {
+            val result = runtime.execute("camera snap; camera snap")
+
+            assertEquals(0, result.exitCode)
+            assertEquals(2, result.supplements.size)
         } finally {
             runtime.close()
         }

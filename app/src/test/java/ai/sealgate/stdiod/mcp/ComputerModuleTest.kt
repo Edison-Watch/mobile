@@ -66,7 +66,7 @@ class ComputerModuleTest {
     }
 
     @Test
-    fun routerBoundsPendingSupplementsBySerializedBytes() {
+    fun routerKeepsOnlyTheLatestPendingSupplement() {
         val source = FakeComputerSource().apply {
             screenshotData = "a".repeat((MobileCommandRouter.MAX_PENDING_SUPPLEMENT_BYTES / 2 + 1024).toInt())
         }
@@ -77,9 +77,56 @@ class ComputerModuleTest {
         val second = Json.parseToJsonElement(router.executeJson(request)).jsonObject
 
         assertEquals(0, first["exitCode"]!!.jsonPrimitive.content.toInt())
-        assertEquals(1, second["exitCode"]!!.jsonPrimitive.content.toInt())
-        assertTrue(second["stderr"]!!.jsonPrimitive.content.contains("attachments exceed 4 MiB"))
+        assertEquals(0, second["exitCode"]!!.jsonPrimitive.content.toInt())
+        val firstToken = first["supplementToken"]!!.jsonPrimitive.content
+        val secondToken = second["supplementToken"]!!.jsonPrimitive.content
+        val retained = router.takeSupplements(listOf(firstToken, secondToken)).single()
+        assertEquals("obs_2", retained.structuredContent!!["observationId"]!!.jsonPrimitive.content)
         router.clearSupplements()
+    }
+
+    @Test
+    fun repeatedComputerStatusDoesNotAccumulateOrReplaceTheLatestObservation() {
+        val router = MobileCommandRouter(listOf(ComputerModule(FakeComputerSource())))
+
+        val observation = router.execute("computer", listOf("observe"))
+        val statuses = List(65) { router.execute("computer", listOf("status")) }
+
+        assertEquals(0, observation.exitCode)
+        assertTrue(statuses.all { it.exitCode == 0 })
+        assertTrue(statuses.all { it.supplementToken == null })
+        val supplement = router.takeSupplements(listOf(observation.supplementToken!!)).single()
+        assertEquals("image", supplement.content.single()["type"]!!.jsonPrimitive.content)
+        assertEquals("obs_1", supplement.structuredContent!!["observationId"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun failedComputerReplacementPreservesThePreviousObservation() {
+        val source = FakeComputerSource().apply { screenshotData = "a".repeat(256 * 1024) }
+        val camera = object : CameraSource {
+            private val result = CameraOperationResult(
+                payload = buildJsonObject { put("lens", JsonPrimitive("back")) },
+                photo = CameraPhoto("a".repeat(3 * 1024 * 1024), "image/jpeg"),
+            )
+            override fun status() = result
+            override fun list() = result
+            override fun snap(options: CameraSnapOptions) = result
+        }
+        val router = MobileCommandRouter(listOf(CameraModule(camera), ComputerModule(source)))
+        val cameraResult = router.execute("camera", listOf("snap"))
+        val firstObservation = router.execute("computer", listOf("observe"))
+        source.screenshotData = "b".repeat(2 * 1024 * 1024)
+
+        val failedReplacement = Json.parseToJsonElement(
+            router.executeJson("""{"namespace":"computer","args":["observe"]}"""),
+        ).jsonObject
+
+        assertEquals(1, failedReplacement["exitCode"]!!.jsonPrimitive.content.toInt())
+        val retained = router.takeSupplements(
+            listOf(cameraResult.supplementToken!!, firstObservation.supplementToken!!),
+        )
+        assertEquals(2, retained.size)
+        assertEquals("obs_1", retained.last().structuredContent!!["observationId"]!!.jsonPrimitive.content)
     }
 
     private class FakeComputerSource : ComputerSource {
@@ -87,16 +134,19 @@ class ComputerModuleTest {
         var text = ""
         var tapDurationMillis = 0
         var screenshotData = "aGVsbG8="
+        var observationNumber = 0
 
         private fun result() = ComputerOperationResult(
             payload = buildJsonObject {
-                put("observationId", JsonPrimitive("obs_1"))
+                put("observationId", JsonPrimitive("obs_${++observationNumber}"))
                 put("accessibilityTree", buildJsonObject { put("nodes", kotlinx.serialization.json.buildJsonArray {}) })
             },
             screenshot = ComputerScreenshot(screenshotData, "image/jpeg"),
         )
 
-        override fun status() = result()
+        override fun status() = ComputerOperationResult(
+            payload = buildJsonObject { put("enabled", JsonPrimitive(true)) },
+        )
         override fun observe() = result()
         override fun click(nodeId: String): ComputerOperationResult = result().also { this.nodeId = nodeId }
         override fun setText(nodeId: String, text: String): ComputerOperationResult = result().also {
