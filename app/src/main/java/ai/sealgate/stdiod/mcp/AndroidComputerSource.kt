@@ -179,7 +179,14 @@ class AndroidComputerSource(context: Context) : ComputerSource {
         val baseline = uiStateMarker(service)
         val path = Path().apply { moveTo(x.toFloat(), y.toFloat()) }
         val performed = dispatchGesture(service, path, durationMillis)
-        finishAction(service, "tap", performed, if (performed) null else "Android rejected the tap gesture", baseline)
+        finishAction(
+            service,
+            "tap",
+            performed,
+            if (performed) null else "Android rejected the tap gesture",
+            baseline,
+            requireTransition = false,
+        )
     }
 
     override fun swipe(
@@ -198,7 +205,14 @@ class AndroidComputerSource(context: Context) : ComputerSource {
             lineTo(endX.toFloat(), endY.toFloat())
         }
         val performed = dispatchGesture(service, path, durationMillis)
-        finishAction(service, "swipe", performed, if (performed) null else "Android rejected the swipe gesture", baseline)
+        finishAction(
+            service,
+            "swipe",
+            performed,
+            if (performed) null else "Android rejected the swipe gesture",
+            baseline,
+            requireTransition = false,
+        )
     }
 
     override fun globalAction(action: String): ComputerOperationResult = withService { service ->
@@ -277,9 +291,10 @@ class AndroidComputerSource(context: Context) : ComputerSource {
         performed: Boolean,
         error: String?,
         baseline: UiStateMarker,
+        requireTransition: Boolean = true,
     ): ComputerOperationResult {
         if (!performed) return actionFailure(action, error ?: "action was not performed")
-        val settle = uiSettler.awaitPostAction(baseline) { uiStateMarker(service) }
+        val settle = uiSettler.awaitPostAction(baseline, requireTransition) { uiStateMarker(service) }
         val observation = captureObservation(service)
         val payload = buildJsonObject {
             put("action", buildJsonObject {

@@ -33,6 +33,7 @@ internal class UiSettler(
 ) {
     fun awaitPostAction(
         baseline: UiStateMarker,
+        requireTransition: Boolean = true,
         sample: () -> UiStateMarker,
     ): UiSettleResult {
         val startedAt = uptimeMillis()
@@ -61,7 +62,7 @@ internal class UiSettler(
             val transitionObserved = eventObserved || windowChanged
             val eventStreamIsQuiet = now - current.lastEventUptimeMillis >= quietMillis
             val activeWindowIsStable = current.hasActiveWindow && now - stableSince >= quietMillis
-            if (transitionObserved && eventStreamIsQuiet && activeWindowIsStable) {
+            if ((!requireTransition || transitionObserved) && eventStreamIsQuiet && activeWindowIsStable) {
                 return UiSettleResult(
                     settled = true,
                     postActionEventObserved = eventObserved,
