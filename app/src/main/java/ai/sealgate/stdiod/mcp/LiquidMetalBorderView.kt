@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.RuntimeShader
@@ -37,6 +38,10 @@ class LiquidMetalBorderView(context: Context) : View(context) {
     private var animating = false
 
     private val strokeRect = RectF()
+    private val sweepMatrix = Matrix()
+
+    // Fallback shader, rebuilt only when the mode or size changes (see setMode / onSizeChanged).
+    private var sweepShader: SweepGradient? = null
 
     private val runtimeShader: RuntimeShader? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -64,7 +69,9 @@ class LiquidMetalBorderView(context: Context) : View(context) {
     }
 
     fun setMode(mode: ComputerUseBorderOverlay.Mode) {
+        if (this.mode == mode) return
         this.mode = mode
+        sweepShader = null
     }
 
     fun startAnimating() {
@@ -79,6 +86,11 @@ class LiquidMetalBorderView(context: Context) : View(context) {
         Choreographer.getInstance().removeFrameCallback(frameCallback)
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        sweepShader = null
+    }
+
     override fun onDetachedFromWindow() {
         stopAnimating()
         super.onDetachedFromWindow()
@@ -88,26 +100,23 @@ class LiquidMetalBorderView(context: Context) : View(context) {
         val inset = borderWidthPx / 2f
         strokeRect.set(inset, inset, width - inset, height - inset)
         val timeSeconds = (System.nanoTime() - startNanos) / 1_000_000_000f
-        val palette = paletteFor(mode)
 
         val shader = runtimeShader
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+        paint.shader = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             shader != null &&
             canvas.isHardwareAccelerated
         ) {
-            drawWithRuntimeShader(canvas, shader, timeSeconds, palette)
+            metalShader(shader, timeSeconds)
         } else {
-            drawWithSweepFallback(canvas, timeSeconds, palette)
+            sweepFor(timeSeconds)
         }
+        canvas.drawRoundRect(strokeRect, cornerRadiusPx, cornerRadiusPx, paint)
     }
 
+    /** AGSL path: reuse the compiled shader, just push this frame's uniforms. */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-    private fun drawWithRuntimeShader(
-        canvas: Canvas,
-        shader: RuntimeShader,
-        timeSeconds: Float,
-        palette: Palette,
-    ) {
+    private fun metalShader(shader: RuntimeShader, timeSeconds: Float): RuntimeShader {
+        val palette = paletteFor(mode)
         shader.setFloatUniform("iResolution", width.toFloat(), height.toFloat())
         shader.setFloatUniform("iTime", timeSeconds)
         shader.setColorUniform("cA", palette.a)
@@ -115,44 +124,30 @@ class LiquidMetalBorderView(context: Context) : View(context) {
         shader.setColorUniform("cC", palette.c)
         shader.setColorUniform("cD", palette.d)
         shader.setColorUniform("cE", palette.e)
-        paint.shader = shader
-        canvas.drawRoundRect(strokeRect, cornerRadiusPx, cornerRadiusPx, paint)
+        return shader
     }
 
-    private fun drawWithSweepFallback(canvas: Canvas, timeSeconds: Float, palette: Palette) {
-        val cx = width / 2f
-        val cy = height / 2f
-        val sweep = SweepGradient(
-            cx,
-            cy,
+    /** Fallback path: reuse the cached gradient and matrix, just re-rotate. */
+    private fun sweepFor(timeSeconds: Float): SweepGradient {
+        val sweep = sweepShader ?: buildSweep().also { sweepShader = it }
+        sweepMatrix.setRotate((timeSeconds * SWEEP_DEGREES_PER_SEC) % 360f, width / 2f, height / 2f)
+        sweep.setLocalMatrix(sweepMatrix)
+        return sweep
+    }
+
+    private fun buildSweep(): SweepGradient {
+        val palette = paletteFor(mode)
+        return SweepGradient(
+            width / 2f,
+            height / 2f,
             intArrayOf(palette.a, palette.c, palette.e, palette.c, palette.a),
             floatArrayOf(0f, 0.25f, 0.5f, 0.75f, 1f),
         )
-        val rotation = android.graphics.Matrix().apply {
-            setRotate((timeSeconds * SWEEP_DEGREES_PER_SEC) % 360f, cx, cy)
-        }
-        sweep.setLocalMatrix(rotation)
-        paint.shader = sweep
-        canvas.drawRoundRect(strokeRect, cornerRadiusPx, cornerRadiusPx, paint)
     }
 
     private fun paletteFor(mode: ComputerUseBorderOverlay.Mode): Palette = when (mode) {
-        // Observe: cool silver/chrome — reading, not touching.
-        ComputerUseBorderOverlay.Mode.OBSERVE -> Palette(
-            a = Color.rgb(0x3A, 0x45, 0x52),
-            b = Color.rgb(0x8A, 0x9B, 0xA8),
-            c = Color.rgb(0xE8, 0xF0, 0xF6),
-            d = Color.rgb(0x9F, 0xB4, 0xC4),
-            e = Color.rgb(0x5C, 0x74, 0x86),
-        )
-        // Control: warm gold/amber — actively driving the device.
-        ComputerUseBorderOverlay.Mode.CONTROL -> Palette(
-            a = Color.rgb(0x5A, 0x3B, 0x0E),
-            b = Color.rgb(0xC9, 0x8A, 0x2B),
-            c = Color.rgb(0xFF, 0xF1, 0xC2),
-            d = Color.rgb(0xE7, 0xA8, 0x3A),
-            e = Color.rgb(0x8A, 0x54, 0x12),
-        )
+        ComputerUseBorderOverlay.Mode.OBSERVE -> OBSERVE_PALETTE
+        ComputerUseBorderOverlay.Mode.CONTROL -> CONTROL_PALETTE
     }
 
     private data class Palette(val a: Int, val b: Int, val c: Int, val d: Int, val e: Int)
@@ -161,6 +156,24 @@ class LiquidMetalBorderView(context: Context) : View(context) {
         const val BORDER_WIDTH_DP = 6f
         const val CORNER_RADIUS_DP = 28f
         const val SWEEP_DEGREES_PER_SEC = 60f
+
+        // Observe: cool silver/chrome — reading, not touching.
+        val OBSERVE_PALETTE = Palette(
+            a = Color.rgb(0x3A, 0x45, 0x52),
+            b = Color.rgb(0x8A, 0x9B, 0xA8),
+            c = Color.rgb(0xE8, 0xF0, 0xF6),
+            d = Color.rgb(0x9F, 0xB4, 0xC4),
+            e = Color.rgb(0x5C, 0x74, 0x86),
+        )
+
+        // Control: warm gold/amber — actively driving the device.
+        val CONTROL_PALETTE = Palette(
+            a = Color.rgb(0x5A, 0x3B, 0x0E),
+            b = Color.rgb(0xC9, 0x8A, 0x2B),
+            c = Color.rgb(0xFF, 0xF1, 0xC2),
+            d = Color.rgb(0xE7, 0xA8, 0x3A),
+            e = Color.rgb(0x8A, 0x54, 0x12),
+        )
 
         // AGSL (Android 13+). SKSL dialect: float2/half4, entry half4 main(float2).
         val AGSL_SOURCE = """

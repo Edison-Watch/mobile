@@ -31,7 +31,6 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
     private val main = Handler(Looper.getMainLooper())
     private val windowManager = service.getSystemService(WindowManager::class.java)
     private var view: LiquidMetalBorderView? = null
-    private var attached = false
 
     private val hideRunnable = Runnable { removeView() }
 
@@ -58,7 +57,7 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
     }
 
     private fun ensureAttached() {
-        if (attached) return
+        if (view != null) return
         val manager = windowManager ?: return
         val overlay = LiquidMetalBorderView(service)
         val params = WindowManager.LayoutParams(
@@ -72,10 +71,8 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
             PixelFormat.TRANSLUCENT,
         )
-        val added = runCatching { manager.addView(overlay, params) }.isSuccess
-        if (added) {
+        if (runCatching { manager.addView(overlay, params) }.isSuccess) {
             view = overlay
-            attached = true
         }
     }
 
@@ -84,7 +81,6 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
         overlay.stopAnimating()
         runCatching { windowManager?.removeView(overlay) }
         view = null
-        attached = false
     }
 
     private companion object {
