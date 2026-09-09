@@ -37,14 +37,11 @@ class DeviceAuthClient(
     private val httpClient: OkHttpClient = OkHttpClient(),
     private val json: Json = defaultJson,
 ) {
-    /** The `ewc_` credential and identity handed back after a successful pairing. */
+    /** The `ewc_` credential and identity the app persists after a successful pairing. */
     data class PairingResult(
         val accessToken: String,
         val deviceId: String,
         val clientInstallationId: String,
-        val scope: List<String>,
-        val userId: String,
-        val orgId: String,
     )
 
     /** A user-facing failure with a message safe to show verbatim. */
@@ -118,9 +115,6 @@ class DeviceAuthClient(
                     accessToken = token.accessToken,
                     deviceId = token.deviceId,
                     clientInstallationId = token.clientInstallationId,
-                    scope = token.scope,
-                    userId = token.userId,
-                    orgId = token.orgId,
                 )
             }
             when (val action = pollActionFor(response.code, response.body, intervalSeconds)) {
@@ -264,15 +258,13 @@ private data class DeviceCodeResponse(
     val interval: Int,
 )
 
+// Only the fields the app consumes; the token endpoint also returns token_type,
+// scope, user_id, org_id and api_key (always null for mobile), ignored here.
 @Serializable
 private data class DeviceTokenResponse(
     @SerialName("access_token") val accessToken: String,
     @SerialName("client_installation_id") val clientInstallationId: String,
     @SerialName("device_id") val deviceId: String,
-    val scope: List<String>,
-    @SerialName("user_id") val userId: String,
-    @SerialName("org_id") val orgId: String,
-    @SerialName("api_key") val apiKey: String? = null,
 )
 
 @Serializable

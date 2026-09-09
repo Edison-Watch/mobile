@@ -27,11 +27,14 @@ object DeviceIdentityStore {
         preferredDeviceId: String? = null,
     ): DeviceIdentity {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        var deviceId = preferredDeviceId?.ifBlank { null } ?: prefs.getString(KEY_DEVICE_ID, null)
-        if (deviceId == null) {
-            deviceId = UUID.randomUUID().toString()
-        }
-        if (deviceId != prefs.getString(KEY_DEVICE_ID, null)) {
+        val supplied = preferredDeviceId?.ifBlank { null }
+        val stored = prefs.getString(KEY_DEVICE_ID, null)
+        // A caller-supplied (OAuth `ewd_`) id is authoritative and already persisted
+        // by TunnelSettings, so it must NOT overwrite the locally minted UUID here -
+        // otherwise a later switch back to API-key mode would present the backend's
+        // device id as its own. Only persist an id we mint ourselves.
+        val deviceId = supplied ?: stored ?: UUID.randomUUID().toString()
+        if (supplied == null && deviceId != stored) {
             prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
         }
         val model = Build.MODEL ?: "Android device"

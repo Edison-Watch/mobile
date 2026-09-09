@@ -339,7 +339,11 @@ class MainActivity : AppCompatActivity() {
         val gatewayUrl = binding.gatewayUrlInput.text?.toString()?.trim().orEmpty()
         val authToken = binding.apiKeyInput.text?.toString()?.trim().orEmpty()
         val stored = TunnelSettings.load(this)
-        val deviceId = if (authToken == stored.authToken && gatewayUrl == stored.gatewayUrl) {
+        // The OAuth device id is bound to the `ewc_` credential, not the endpoint,
+        // so keep it as long as the saved credential is still the one in the field.
+        // Editing the gateway URL must not drop it (that would leave the credential
+        // unusable); a manually pasted API key simply has no bound device id.
+        val deviceId = if (authToken == stored.authToken && authToken.startsWith("ewc_")) {
             stored.deviceId
         } else {
             null
