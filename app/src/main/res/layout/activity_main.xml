@@ -262,6 +262,32 @@
                     android:textSize="14sp" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/signInButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="16dp"
+                android:fontFamily="sans-serif-condensed"
+                android:letterSpacing="0.08"
+                android:text="@string/action_sign_in"
+                android:textColor="@color/baseline_black"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                app:backgroundTint="@color/core_cyan"
+                app:cornerRadius="4dp"
+                app:rippleColor="@color/cyan_pressed" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:fontFamily="monospace"
+                android:letterSpacing="0.16"
+                android:text="@string/api_key_advanced_label"
+                android:textAllCaps="true"
+                android:textColor="@color/graphene_grey"
+                android:textSize="10sp" />
+
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/apiKeyLayout"
                 style="@style/Widget.MobileTunnel.TextInputLayout"

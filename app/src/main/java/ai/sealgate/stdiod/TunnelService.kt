@@ -82,6 +82,7 @@ class TunnelService : LifecycleService() {
             TunnelConfig(
                 gatewayUrl = it.getStringExtra(TunnelConfig.EXTRA_GATEWAY_URL).orEmpty(),
                 authToken = it.getStringExtra(TunnelConfig.EXTRA_AUTH_TOKEN).orEmpty(),
+                deviceId = it.getStringExtra(TunnelConfig.EXTRA_DEVICE_ID)?.ifBlank { null },
             )
         }
 
@@ -119,7 +120,7 @@ class TunnelService : LifecycleService() {
 
     private fun startClient(config: TunnelConfig) {
         Log.i(TAG, "Tunnel starting -> ${config.gatewayUrl}")
-        val identity = DeviceIdentityStore.load(this, BuildConfig.VERSION_NAME)
+        val identity = DeviceIdentityStore.load(this, BuildConfig.VERSION_NAME, config.deviceId)
         val capabilityModules = buildList {
             add(DeviceInfoModule(AndroidDeviceInfo))
             add(BatteryModule(AndroidBatterySource(this@TunnelService)))
@@ -329,6 +330,7 @@ class TunnelService : LifecycleService() {
             val intent = Intent(context, TunnelService::class.java).apply {
                 putExtra(TunnelConfig.EXTRA_GATEWAY_URL, config.gatewayUrl)
                 putExtra(TunnelConfig.EXTRA_AUTH_TOKEN, config.authToken)
+                putExtra(TunnelConfig.EXTRA_DEVICE_ID, config.deviceId)
             }
             context.startForegroundService(intent)
         }

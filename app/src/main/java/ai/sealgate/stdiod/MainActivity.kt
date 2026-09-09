@@ -1,16 +1,21 @@
 package ai.sealgate.stdiod
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.content.Intent
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -19,9 +24,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import ai.sealgate.stdiod.databinding.ActivityMainBinding
+import ai.sealgate.stdiod.tunnel.DeviceAuthClient
+import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
+import ai.sealgate.stdiod.tunnel.GatewayUrls
+import ai.sealgate.stdiod.tunnel.PendingGrant
 import ai.sealgate.stdiod.tunnel.TunnelState
 import ai.sealgate.stdiod.mcp.ComputerAccessibilityService
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -34,6 +45,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var tunnelState: TunnelState? = null
+    private var signInJob: Job? = null
     private var syncingComputerControlSwitch = false
     private var syncingCameraSwitch = false
     private val computerUsePreferenceListener =
@@ -146,16 +158,18 @@ class MainActivity : AppCompatActivity() {
                 .show()
         }
 
+        binding.signInButton.setOnClickListener {
+            binding.signInButton.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            startDeviceSignIn()
+        }
+
         binding.tunnelButton.setOnClickListener {
             binding.tunnelButton.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
             if (tunnelState != null) {
                 TunnelService.stop(this)
                 return@setOnClickListener
             }
-            val config = TunnelConfig(
-                gatewayUrl = binding.gatewayUrlInput.text?.toString()?.trim().orEmpty(),
-                authToken = binding.apiKeyInput.text?.toString()?.trim().orEmpty(),
-            )
+            val config = configFromInputs()
             binding.gatewayUrlLayout.error = null
             binding.apiKeyLayout.error = null
             if (!config.isValid()) {
@@ -313,6 +327,124 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
         if (wanted.isNotEmpty()) requestBluetoothPermissions.launch(wanted.toTypedArray())
+    }
+
+    /**
+     * Build a [TunnelConfig] from the visible inputs, carrying the OAuth device
+     * id forward when the credential and gateway are unchanged from what was
+     * saved. Editing either field is treated as a fresh (API-key) credential
+     * with no bound device id.
+     */
+    private fun configFromInputs(): TunnelConfig {
+        val gatewayUrl = binding.gatewayUrlInput.text?.toString()?.trim().orEmpty()
+        val authToken = binding.apiKeyInput.text?.toString()?.trim().orEmpty()
+        val stored = TunnelSettings.load(this)
+        val deviceId = if (authToken == stored.authToken && gatewayUrl == stored.gatewayUrl) {
+            stored.deviceId
+        } else {
+            null
+        }
+        return TunnelConfig(gatewayUrl = gatewayUrl, authToken = authToken, deviceId = deviceId)
+    }
+
+    /**
+     * Run the OAuth device-authorization flow: request a code, show it for the
+     * user to approve in the dashboard, poll until approved, then persist the
+     * credential and start the tunnel.
+     */
+    private fun startDeviceSignIn() {
+        if (signInJob?.isActive == true) return
+        val gatewayUrl = binding.gatewayUrlInput.text?.toString()?.trim().orEmpty()
+        binding.gatewayUrlLayout.error = null
+        val apiBase = GatewayUrls.apiBaseFromWs(gatewayUrl)
+        if (apiBase == null) {
+            binding.gatewayUrlLayout.error = getString(R.string.error_gateway_url)
+            binding.settingsPanel.visibility = View.VISIBLE
+            return
+        }
+
+        val client = DeviceAuthClient(apiBase)
+        val label = DeviceIdentityStore.deviceLabel()
+        val existingInstallation = TunnelSettings.clientInstallationId(this)
+        binding.signInButton.isEnabled = false
+        Toast.makeText(this, R.string.sign_in_starting, Toast.LENGTH_SHORT).show()
+
+        signInJob = lifecycleScope.launch {
+            try {
+                val grant = client.requestDeviceCode(label, BuildConfig.VERSION_NAME, existingInstallation)
+                val dialog = showSignInDialog(grant)
+                openUri(grant.verificationUriComplete)
+                val result = try {
+                    client.pollForToken(grant)
+                } finally {
+                    dialog.dismiss()
+                }
+                TunnelSettings.saveOAuthResult(
+                    context = this@MainActivity,
+                    gatewayUrl = gatewayUrl,
+                    accessToken = result.accessToken,
+                    deviceId = result.deviceId,
+                    clientInstallationId = result.clientInstallationId,
+                )
+                binding.gatewayUrlInput.setText(gatewayUrl)
+                binding.apiKeyInput.setText(result.accessToken)
+                binding.apiKeyLayout.error = null
+                binding.settingsPanel.visibility = View.GONE
+                Toast.makeText(this@MainActivity, R.string.sign_in_success, Toast.LENGTH_SHORT).show()
+                TunnelService.start(
+                    this@MainActivity,
+                    TunnelConfig(gatewayUrl, result.accessToken, result.deviceId),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: DeviceAuthClient.DeviceAuthException) {
+                showSignInError(e.message)
+            } finally {
+                binding.signInButton.isEnabled = true
+            }
+        }
+    }
+
+    private fun showSignInDialog(grant: PendingGrant): AlertDialog {
+        val view = layoutInflater.inflate(R.layout.dialog_device_sign_in, null)
+        view.findViewById<TextView>(R.id.signInUri).text = grant.verificationUri
+        view.findViewById<TextView>(R.id.signInCode).text = grant.userCode
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.sign_in_dialog_title)
+            .setView(view)
+            .setPositiveButton(R.string.action_open_dashboard, null)
+            .setNegativeButton(R.string.action_cancel) { _, _ -> signInJob?.cancel() }
+            .setOnCancelListener { signInJob?.cancel() }
+            .create()
+        // Keep the dialog open when "Open dashboard" is tapped so the user can
+        // return and watch it flip to connected.
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                openUri(grant.verificationUriComplete)
+            }
+        }
+        dialog.show()
+        return dialog
+    }
+
+    private fun showSignInError(message: String?) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.sign_in_failed_title)
+            .setMessage(message ?: getString(R.string.sign_in_failed_title))
+            .setPositiveButton(R.string.action_close, null)
+            .show()
+    }
+
+    private fun openUri(uri: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(
+                this,
+                getString(R.string.sign_in_no_browser, uri),
+                Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 
     companion object {

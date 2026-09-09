@@ -31,7 +31,20 @@
     <string name="hint_gateway_url">Gateway URL</string>
     <string name="hint_api_key">SealGate API key</string>
     <string name="error_gateway_url">Use a wss:// URL (ws:// is allowed for local development)</string>
-    <string name="error_api_key">Paste your API key from the dashboard</string>
+    <string name="error_api_key">Sign in, or paste an API key from the dashboard</string>
+
+    <string name="action_sign_in">Sign in with SealGate</string>
+    <string name="api_key_advanced_label">Or connect with an API key</string>
+    <string name="sign_in_starting">Starting sign-in…</string>
+    <string name="sign_in_dialog_title">Approve this device</string>
+    <string name="sign_in_dialog_intro">In the SealGate dashboard, go to</string>
+    <string name="sign_in_dialog_code_label">and enter this code:</string>
+    <string name="sign_in_dialog_waiting">Waiting for approval in the dashboard…</string>
+    <string name="sign_in_success">Signed in. Starting tunnel…</string>
+    <string name="action_open_dashboard">Open dashboard</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="sign_in_no_browser">No browser found. Open %1$s manually to approve.</string>
+    <string name="sign_in_failed_title">Sign-in failed</string>
 
     <string name="tunnel_visual_stopped">Diagram: this phone is ready to connect securely to the SealGate gateway.</string>
     <string name="tunnel_visual_connecting">Diagram: this phone is creating a secure connection to the SealGate gateway.</string>

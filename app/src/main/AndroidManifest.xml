@@ -51,6 +51,16 @@
         android:name="android.hardware.usb.host"
         android:required="false" />
 
+    <!-- Sign-in opens the dashboard's device-approval page in a browser. On
+         Android 11+ package visibility requires declaring the web intent to
+         resolve and launch an external browser. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
