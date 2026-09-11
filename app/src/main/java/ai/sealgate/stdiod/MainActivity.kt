@@ -219,6 +219,10 @@ class MainActivity : AppCompatActivity() {
                 .registerOnSharedPreferenceChangeListener(computerUsePreferenceListener)
             renderComputerControl()
         }
+        // Resume a sign-in that a process kill interrupted mid-approval. Guarded
+        // (no-op when a poll is already running or no grant is stored), so the
+        // common foreground-return case does nothing.
+        if (::binding.isInitialized) maybeResumeSignIn()
     }
 
     override fun onStop() {
@@ -352,9 +356,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Run the OAuth device-authorization flow: request a code, show it for the
-     * user to approve in the dashboard, poll until approved, then persist the
-     * credential and start the tunnel.
+     * Start the OAuth device-authorization flow: request a code, persist the
+     * grant (so a process death mid-approval can resume), then poll.
      */
     private fun startDeviceSignIn() {
         if (signInJob?.isActive == true) return
@@ -374,38 +377,87 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.sign_in_starting, Toast.LENGTH_SHORT).show()
 
         signInJob = lifecycleScope.launch {
-            try {
-                val grant = client.requestDeviceCode(label, BuildConfig.VERSION_NAME, existingInstallation)
-                val dialog = showSignInDialog(grant)
-                openUri(grant.verificationUriComplete)
-                val result = try {
-                    client.pollForToken(grant)
-                } finally {
-                    dialog.dismiss()
-                }
-                TunnelSettings.saveOAuthResult(
-                    context = this@MainActivity,
-                    gatewayUrl = gatewayUrl,
-                    accessToken = result.accessToken,
-                    deviceId = result.deviceId,
-                    clientInstallationId = result.clientInstallationId,
-                )
-                binding.gatewayUrlInput.setText(gatewayUrl)
-                binding.apiKeyInput.setText(result.accessToken)
-                binding.apiKeyLayout.error = null
-                binding.settingsPanel.visibility = View.GONE
-                Toast.makeText(this@MainActivity, R.string.sign_in_success, Toast.LENGTH_SHORT).show()
-                TunnelService.start(
-                    this@MainActivity,
-                    TunnelConfig(gatewayUrl, result.accessToken, result.deviceId),
-                )
-            } catch (e: CancellationException) {
-                throw e
+            val grant = try {
+                client.requestDeviceCode(label, BuildConfig.VERSION_NAME, existingInstallation)
             } catch (e: DeviceAuthClient.DeviceAuthException) {
-                showSignInError(e.message)
-            } finally {
                 binding.signInButton.isEnabled = true
+                showSignInError(e.message)
+                return@launch
             }
+            PendingSignInStore.save(
+                this@MainActivity,
+                gatewayUrl,
+                grant,
+                System.currentTimeMillis() + grant.expiresInSeconds.toLong() * 1000L,
+            )
+            pollGrantToTunnel(client, gatewayUrl, grant, openBrowser = true)
+        }
+    }
+
+    /**
+     * Resume a sign-in whose poll was killed by process death while the user was
+     * approving in the browser. No-op when there is no live grant. The browser is
+     * not reopened - the user was already there.
+     */
+    private fun maybeResumeSignIn() {
+        if (signInJob?.isActive == true) return
+        val saved = PendingSignInStore.load(this) ?: return
+        val apiBase = GatewayUrls.apiBaseFromWs(saved.gatewayUrl)
+        if (apiBase == null) {
+            PendingSignInStore.clear(this)
+            return
+        }
+        binding.signInButton.isEnabled = false
+        signInJob = lifecycleScope.launch {
+            pollGrantToTunnel(DeviceAuthClient(apiBase), saved.gatewayUrl, saved.grant, openBrowser = false)
+        }
+    }
+
+    /**
+     * Show the approval dialog, poll to completion, and on success persist the
+     * credential and start the tunnel. The persisted grant is cleared on success
+     * and on terminal failure here, and on explicit user cancel in the dialog
+     * handlers; it is deliberately kept on lifecycle cancellation and process
+     * kill so [maybeResumeSignIn] can pick it up on the next launch.
+     */
+    private suspend fun pollGrantToTunnel(
+        client: DeviceAuthClient,
+        gatewayUrl: String,
+        grant: PendingGrant,
+        openBrowser: Boolean,
+    ) {
+        try {
+            val dialog = showSignInDialog(grant)
+            if (openBrowser) openUri(grant.verificationUriComplete)
+            val result = try {
+                client.pollForToken(grant)
+            } finally {
+                dialog.dismiss()
+            }
+            TunnelSettings.saveOAuthResult(
+                context = this,
+                gatewayUrl = gatewayUrl,
+                accessToken = result.accessToken,
+                deviceId = result.deviceId,
+                clientInstallationId = result.clientInstallationId,
+            )
+            binding.gatewayUrlInput.setText(gatewayUrl)
+            binding.apiKeyInput.setText(result.accessToken)
+            binding.apiKeyLayout.error = null
+            binding.settingsPanel.visibility = View.GONE
+            Toast.makeText(this, R.string.sign_in_success, Toast.LENGTH_SHORT).show()
+            TunnelService.start(this, TunnelConfig(gatewayUrl, result.accessToken, result.deviceId))
+            PendingSignInStore.clear(this)
+        } catch (e: CancellationException) {
+            // Lifecycle cancellation (e.g. the activity is destroyed): leave the
+            // grant persisted so it can resume. Explicit user cancel clears it in
+            // the dialog handlers before cancelling the job.
+            throw e
+        } catch (e: DeviceAuthClient.DeviceAuthException) {
+            PendingSignInStore.clear(this)
+            showSignInError(e.message)
+        } finally {
+            binding.signInButton.isEnabled = true
         }
     }
 
@@ -417,8 +469,8 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.sign_in_dialog_title)
             .setView(view)
             .setPositiveButton(R.string.action_open_dashboard, null)
-            .setNegativeButton(R.string.action_cancel) { _, _ -> signInJob?.cancel() }
-            .setOnCancelListener { signInJob?.cancel() }
+            .setNegativeButton(R.string.action_cancel) { _, _ -> cancelSignIn() }
+            .setOnCancelListener { cancelSignIn() }
             .create()
         // Keep the dialog open when "Open dashboard" is tapped so the user can
         // return and watch it flip to connected.
@@ -429,6 +481,12 @@ class MainActivity : AppCompatActivity() {
         }
         dialog.show()
         return dialog
+    }
+
+    /** User aborted sign-in: drop the persisted grant so it is not resumed, then stop the poll. */
+    private fun cancelSignIn() {
+        PendingSignInStore.clear(this)
+        signInJob?.cancel()
     }
 
     private fun showSignInError(message: String?) {
