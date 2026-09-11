@@ -35,7 +35,9 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "ai.sealgate.stdiod"
+        // Google Play package name (permanent). Distinct from the code namespace
+        // (ai.sealgate.stdiod), which stays as-is to avoid churning every source file.
+        applicationId = "ai.sealgate.mobile"
         minSdk = 26
         targetSdk = 36
         versionCode = 1

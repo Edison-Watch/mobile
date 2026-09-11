@@ -4,7 +4,7 @@ The app publishes as an Android App Bundle (`.aab`) signed with an **upload key*
 Google Play App Signing holds the real app signing key and re-signs each upload,
 so the upload key only proves the upload came from us and can be reset if lost.
 
-Package: `ai.sealgate.stdiod` · Play Console: Organisation account "SealGate".
+Package: `ai.sealgate.mobile` · Play Console: Organisation account "SealGate".
 
 ## One-time: create the upload keystore
 
