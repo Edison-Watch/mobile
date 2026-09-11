@@ -1,8 +1,34 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
 }
+
+// Release signing for the Google Play (Play App Signing) upload key. Values are
+// read from keystore.properties at the repo root, falling back to ANDROID_*
+// environment variables for a CI/release runner. The keystore and its passwords
+// are never committed (see .gitignore). When no signing config is present (e.g.
+// CI, which only builds debug), release builds stay unsigned so the build still
+// runs; `bundleRelease` for the store must be run where the keystore exists.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun releaseSigningValue(propKey: String, envKey: String): String? =
+    (keystoreProperties.getProperty(propKey) ?: System.getenv(envKey))?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = releaseSigningValue("storeFile", "ANDROID_KEYSTORE_FILE")
+    ?.let { rootProject.file(it) }
+val releaseStorePassword = releaseSigningValue("storePassword", "ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("keyAlias", "ANDROID_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("keyPassword", "ANDROID_KEY_PASSWORD")
+val hasReleaseSigning = releaseStoreFile?.exists() == true &&
+    releaseStorePassword != null && releaseKeyAlias != null && releaseKeyPassword != null
 
 android {
     namespace = "ai.sealgate.stdiod"
@@ -18,6 +44,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Install alongside signed/release builds during live device testing.
@@ -29,6 +66,11 @@ android {
             // Google Play build: the accessibility service is not merged into
             // the manifest and the capability is never registered.
             buildConfigField("boolean", "COMPUTER_USE_AVAILABLE", "false")
+            // Signed with the upload key when the keystore is available (release
+            // runner / local). Absent in CI, where only debug is built.
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
