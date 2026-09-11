@@ -36,6 +36,8 @@ captures/
 # Keystore files (do not commit signing material)
 *.jks
 *.keystore
+# Release signing config (holds keystore path + passwords)
+keystore.properties
 
 # Kotlin
 .kotlin/
