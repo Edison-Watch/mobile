@@ -1,0 +1,73 @@
+name: Release
+
+# Publishes a signed release APK to a GitHub Release whenever a version tag is
+# pushed, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
+#
+# Signing reuses the release signingConfig in app/build.gradle.kts, which reads
+# the ANDROID_* env vars set below. The keystore is supplied as a base64 repo
+# secret; the passwords/alias are repo secrets too. See RELEASE.md.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish release APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode signing keystore
+        env:
+          SG_MOBILE_RELEASE_KEYSTORE_BASE64: ${{ secrets.SG_MOBILE_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$SG_MOBILE_RELEASE_KEYSTORE_BASE64" ]; then
+            echo "::error::SG_MOBILE_RELEASE_KEYSTORE_BASE64 secret is not set. See RELEASE.md."
+            exit 1
+          fi
+          echo "$SG_MOBILE_RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      - name: Assemble release APK
+        env:
+          # Consumed by the release signingConfig in app/build.gradle.kts.
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.SG_MOBILE_RELEASE_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.SG_MOBILE_RELEASE_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.SG_MOBILE_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Stage APK
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$apk" ]; then
+            echo "::error::Expected signed APK at $apk. Signing likely did not apply (check secrets)."
+            ls -R app/build/outputs/apk/release || true
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$apk" "dist/sealgate-${GITHUB_REF_NAME}.apk"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/sealgate-${GITHUB_REF_NAME}.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

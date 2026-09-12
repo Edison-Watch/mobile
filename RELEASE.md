@@ -62,6 +62,38 @@ jarsigner -verify -verbose -certs \
   `app/build.gradle.kts`.
 - `./gradlew bundleRelease`, upload the new `.aab`.
 
+## GitHub Releases (signed APK via CI)
+
+For direct distribution / sideloading (not Play), `.github/workflows/release.yml`
+publishes a **signed APK** to a GitHub Release when a `v*` tag is pushed:
+
+```bash
+# bump versionCode / versionName in app/build.gradle.kts first, then:
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow runs `assembleRelease` and reuses the same release signing config
+(the `ANDROID_*` env vars), so the APK is signed with the upload key. It then
+creates a Release named after the tag with `sealgate-v0.1.0.apk` attached and
+auto-generated notes.
+
+This is the APK path; the Play upload above is still the `.aab` produced by
+`bundleRelease`. Both share one signing config.
+
+### Required repository secrets
+
+The workflow feeds the signing config from these secrets (Settings -> Secrets
+and variables -> Actions). Names are `SG_MOBILE_`-prefixed; the workflow maps
+them onto the `ANDROID_*` env vars the build reads.
+
+| Secret                              | Maps to / value                                          |
+| ----------------------------------- | -------------------------------------------------------- |
+| `SG_MOBILE_RELEASE_KEYSTORE_BASE64` | The upload keystore, base64-encoded (`base64 -w0 upload-keystore.jks`) |
+| `SG_MOBILE_RELEASE_STORE_PASSWORD`  | `ANDROID_KEYSTORE_PASSWORD`                              |
+| `SG_MOBILE_RELEASE_KEY_ALIAS`       | `ANDROID_KEY_ALIAS`                                      |
+| `SG_MOBILE_RELEASE_KEY_PASSWORD`    | `ANDROID_KEY_PASSWORD`                                   |
+
 ## Notes
 
 - The Play/release build excludes the Computer-Use accessibility capability
