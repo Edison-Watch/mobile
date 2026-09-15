@@ -36,6 +36,7 @@ import ai.sealgate.stdiod.mcp.WifiModule
 import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
 import ai.sealgate.stdiod.tunnel.TunnelClient
 import ai.sealgate.stdiod.tunnel.TunnelState
+import ai.sealgate.stdiod.tunnel.TunnelStopReason
 import ai.sealgate.stdiod.ui.NotificationTunnelArtwork
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -167,7 +168,8 @@ class TunnelService : LifecycleService() {
                     getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationAnimationJob?.cancel()
                 manager.notify(NOTIFICATION_ID, buildNotification(state, frame = 0))
-                if (state != TunnelState.Disconnected && systemAnimationsEnabled()) {
+                val animated = state != TunnelState.Disconnected && state !is TunnelState.Unauthorized
+                if (animated && systemAnimationsEnabled()) {
                     notificationAnimationJob = animateNotification(state, manager)
                 }
             }
@@ -282,6 +284,17 @@ class TunnelService : LifecycleService() {
                 status = R.string.tunnel_state_disconnected,
                 color = R.color.infra_red,
             )
+            is TunnelState.Unauthorized -> NotificationPresentation(
+                status = stopReasonStatus(state.reason),
+                color = R.color.infra_red,
+            )
+        }
+
+    private fun stopReasonStatus(reason: TunnelStopReason): Int =
+        when (reason) {
+            TunnelStopReason.CREDENTIAL_REJECTED -> R.string.tunnel_state_sign_in_required
+            TunnelStopReason.PROTOCOL_UNSUPPORTED -> R.string.tunnel_state_update_required
+            TunnelStopReason.ORG_NOT_ENABLED -> R.string.tunnel_state_org_not_enabled
         }
 
     private fun systemAnimationsEnabled(): Boolean =

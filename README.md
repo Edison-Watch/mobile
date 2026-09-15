@@ -109,6 +109,15 @@ per-file limit, and 32 MiB total virtual filesystem limit.
    dedicated `mobile` client id; the backend side lives in `edison-watch`
    (`src/api/v1/routes/device_auth.py`, `dev-docs/architecture/mobile-hardware-gateway-design.md`).
 
+   The credential (and the in-flight PKCE verifier of an interrupted sign-in) is
+   stored encrypted at rest with an AES-256-GCM key held in the AndroidKeyStore
+   (`SecretCipher`), so a prefs dump or a backup restored to another phone cannot
+   lift it. To disconnect, open settings and tap **Sign out**: the app stops the
+   tunnel, forgets the local credential, and revokes the installation in the
+   dashboard (`POST /api/v1/auth/device/revoke`). If the gateway later revokes the
+   credential itself, the tunnel stops reconnecting and the app asks you to sign
+   in again instead of looping.
+
    While the tunnel is running, pull down from the top of the app screen to
    close the current socket and reconnect immediately with the saved settings.
 

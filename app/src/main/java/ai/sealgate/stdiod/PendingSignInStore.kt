@@ -13,7 +13,9 @@ import android.content.Context
  * for true process death. The grant is short-lived (minutes) and the stored
  * fields carry the same trust level as the credential they redeem, so they
  * live in the app's private SharedPreferences and are cleared the moment the
- * poll reaches any terminal state.
+ * poll reaches any terminal state. The two secrets that redeem the grant - the
+ * PKCE verifier and the device code - are [SecretCipher]-encrypted at rest, so
+ * an interrupted sign-in is no weaker on disk than a completed one.
  */
 object PendingSignInStore {
 
@@ -24,12 +26,12 @@ object PendingSignInStore {
         context.prefs()
             .edit()
             .putString(KEY_GATEWAY_URL, gatewayUrl)
-            .putString(KEY_DEVICE_CODE, grant.deviceCode)
+            .putString(KEY_DEVICE_CODE, SecretCipher.encrypt(grant.deviceCode))
             .putString(KEY_USER_CODE, grant.userCode)
             .putString(KEY_VERIFY_URI, grant.verificationUri)
             .putString(KEY_VERIFY_URI_COMPLETE, grant.verificationUriComplete)
             .putInt(KEY_INTERVAL, grant.intervalSeconds)
-            .putString(KEY_CODE_VERIFIER, grant.codeVerifier)
+            .putString(KEY_CODE_VERIFIER, SecretCipher.encrypt(grant.codeVerifier))
             .putLong(KEY_EXPIRES_AT, expiresAtMillis)
             .apply()
     }
@@ -42,17 +44,21 @@ object PendingSignInStore {
     fun load(context: Context, nowMillis: Long = System.currentTimeMillis()): Saved? {
         val prefs = context.prefs()
         val gatewayUrl = prefs.getString(KEY_GATEWAY_URL, null)
-        val deviceCode = prefs.getString(KEY_DEVICE_CODE, null)
+        val deviceCode = prefs.getString(KEY_DEVICE_CODE, null)?.let { SecretCipher.decrypt(it) }
         val userCode = prefs.getString(KEY_USER_CODE, null)
         val verifyUri = prefs.getString(KEY_VERIFY_URI, null)
         val verifyUriComplete = prefs.getString(KEY_VERIFY_URI_COMPLETE, null)
-        val codeVerifier = prefs.getString(KEY_CODE_VERIFIER, null)
+        val codeVerifier = prefs.getString(KEY_CODE_VERIFIER, null)?.let { SecretCipher.decrypt(it) }
         val expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0L)
         val interval = prefs.getInt(KEY_INTERVAL, 0)
         if (
             gatewayUrl == null || deviceCode == null || userCode == null ||
             verifyUri == null || verifyUriComplete == null || codeVerifier == null
         ) {
+            // When a record was stored but a secret no longer decrypts, the grant
+            // is unredeemable: drop it so it is never resumed. An empty store (no
+            // gateway url) needs no write.
+            if (gatewayUrl != null) clear(context)
             return null
         }
         val remainingSeconds = ((expiresAt - nowMillis) / 1000L).toInt()

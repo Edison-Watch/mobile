@@ -40,6 +40,25 @@ sealed interface TunnelState {
 
     /** `server_hello` received; the tunnel is live. */
     data object Connected : TunnelState
+
+    /**
+     * Terminal: the gateway refused this credential for good, so the reconnect
+     * loop has stopped. Reconnecting with the same credential would only loop,
+     * so the UI turns this into a call to action (see [reason]).
+     */
+    data class Unauthorized(val reason: TunnelStopReason) : TunnelState
+}
+
+/** Why the gateway refused the tunnel for good, and thus what the user must do. */
+enum class TunnelStopReason {
+    /** Credential invalid, revoked, or bound to a different device: sign in again. */
+    CREDENTIAL_REJECTED,
+
+    /** The client's protocol version is outside the gateway's window: update the app. */
+    PROTOCOL_UNSUPPORTED,
+
+    /** stdio tunnel is not enabled for this org: contact an admin. */
+    ORG_NOT_ENABLED,
 }
 
 /**
@@ -121,11 +140,19 @@ class TunnelClient(
         var backoffMillis = INITIAL_BACKOFF_MILLIS
         while (true) {
             _state.value = TunnelState.Connecting
-            val sessionSawHello = runOneConnection()
+            val outcome = runOneConnection()
+            if (outcome.terminalReason != null) {
+                // The gateway rejected the credential for good. Stop reconnecting
+                // (retrying the same credential would just loop every backoff) and
+                // publish a terminal state the UI turns into a call to action.
+                Log.w(TAG, "tunnel stopped, credential no longer usable: ${outcome.terminalReason}")
+                _state.value = TunnelState.Unauthorized(outcome.terminalReason)
+                return
+            }
             _state.value = TunnelState.Disconnected
             // A handshake that completed earns a fresh backoff; a connection
             // refused/dropped before server_hello keeps climbing toward the cap.
-            backoffMillis = if (sessionSawHello) {
+            backoffMillis = if (outcome.sawServerHello) {
                 INITIAL_BACKOFF_MILLIS
             } else {
                 (backoffMillis * 2).coerceAtMost(MAX_BACKOFF_MILLIS)
@@ -136,8 +163,14 @@ class TunnelClient(
         }
     }
 
-    /** Runs one WebSocket session to completion. Returns true if `server_hello` arrived. */
-    private suspend fun runOneConnection(): Boolean = suspendCancellableCoroutine { cont ->
+    /** The result of one WebSocket session: whether it handshook, and any terminal refusal. */
+    private data class ConnectionOutcome(
+        val sawServerHello: Boolean,
+        val terminalReason: TunnelStopReason?,
+    )
+
+    /** Runs one WebSocket session to completion. */
+    private suspend fun runOneConnection(): ConnectionOutcome = suspendCancellableCoroutine { cont ->
         val sessionActive = AtomicBoolean(true)
         val dispatcher = McpRequestDispatcher()
         activeDispatcher.getAndSet(dispatcher)?.close()
@@ -148,8 +181,9 @@ class TunnelClient(
             .build()
 
         val listener = object : WebSocketListener() {
-            // OkHttp delivers reader callbacks sequentially, so this needs no lock.
+            // OkHttp delivers reader callbacks sequentially, so these need no lock.
             var sawServerHello = false
+            var terminalReason: TunnelStopReason? = null
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (stopped.get()) {
@@ -220,14 +254,22 @@ class TunnelClient(
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Log.w(TAG, "tunnel socket failure (http=${response?.code})", t)
+                // A rejected upgrade (the gateway closes before `accept`, e.g. an
+                // invalid or revoked credential) reaches us as an HTTP status, not
+                // a WS close frame; treat 401/403 as terminal.
+                if (terminalReason == null) terminalReason = terminalReasonForFailure(response)
                 finish()
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                // onClosing carries the peer's close code/reason; capture it here
+                // before echoing our own close (onClosed reports the same peer code).
+                terminalReason = terminalReasonForClose(code, reason)
                 webSocket.close(NORMAL_CLOSURE, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (terminalReason == null) terminalReason = terminalReasonForClose(code, reason)
                 finish()
             }
 
@@ -237,7 +279,7 @@ class TunnelClient(
                 activeDispatcher.compareAndSet(dispatcher, null)
                 this@TunnelClient.webSocket = null
                 modulesByServerId.clear()
-                if (cont.isActive) cont.resume(sawServerHello)
+                if (cont.isActive) cont.resume(ConnectionOutcome(sawServerHello, terminalReason))
             }
         }
 
@@ -316,9 +358,41 @@ class TunnelClient(
     companion object {
         private const val TAG = "TunnelClient"
         private const val NORMAL_CLOSURE = 1000
+        private const val POLICY_VIOLATION = 1008
         private const val TRY_AGAIN_LATER = 1013
         private const val INITIAL_BACKOFF_MILLIS = 1_000L
         private const val MAX_BACKOFF_MILLIS = 60_000L
+
+        /**
+         * Classify a WS close frame. Only the gateway's own 1008 policy closes are
+         * terminal, and the reason string (a documented, stable contract - see
+         * `_authenticate_ws` and the protocol handshake in edison-watch's
+         * stdio_tunnel.py) says which. An unrecognised close (network 1006, server
+         * restart 1012, "connection replaced", ...) is transient: keep reconnecting.
+         */
+        internal fun terminalReasonForClose(code: Int, reason: String): TunnelStopReason? {
+            if (code != POLICY_VIOLATION) return null
+            val r = reason.lowercase()
+            return when {
+                "protocol_version" in r -> TunnelStopReason.PROTOCOL_UNSUPPORTED
+                "not enabled" in r -> TunnelStopReason.ORG_NOT_ENABLED
+                "revoked" in r || "identity" in r || "credential" in r ||
+                    "device id" in r || "device_id" in r ->
+                    TunnelStopReason.CREDENTIAL_REJECTED
+                else -> null
+            }
+        }
+
+        /**
+         * Classify a failed WS upgrade. The gateway rejects a bad/revoked
+         * credential before `accept`, which OkHttp surfaces as an HTTP status
+         * rather than a close frame; 401/403 mean the credential was refused.
+         */
+        internal fun terminalReasonForFailure(response: Response?): TunnelStopReason? =
+            when (response?.code) {
+                401, 403 -> TunnelStopReason.CREDENTIAL_REJECTED
+                else -> null
+            }
 
         private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
             // One WS, no request/response cycle: no read timeout, but do

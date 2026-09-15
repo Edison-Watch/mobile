@@ -3,6 +3,7 @@ package ai.sealgate.stdiod.tunnel
 import java.security.MessageDigest
 import java.util.Base64
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -96,5 +97,19 @@ class DeviceAuthPollActionTest {
     fun `unrecognised error body still fails cleanly`() {
         val action = client.pollActionFor(500, "not json", 5)
         assertTrue(action is DeviceAuthClient.PollAction.Fail)
+    }
+
+    @Test
+    fun `revocation counts 2xx and an already-invalid 401 as done`() {
+        assertTrue(client.revocationSucceeded(200))
+        assertTrue(client.revocationSucceeded(204))
+        assertTrue(client.revocationSucceeded(401))
+    }
+
+    @Test
+    fun `revocation treats other failures as unconfirmed`() {
+        assertFalse(client.revocationSucceeded(403))
+        assertFalse(client.revocationSucceeded(500))
+        assertFalse(client.revocationSucceeded(0))
     }
 }

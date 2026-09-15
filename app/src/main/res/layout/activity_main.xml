@@ -310,6 +310,23 @@
                     android:textSize="14sp" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/signOutButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="20dp"
+                android:fontFamily="sans-serif-condensed"
+                android:letterSpacing="0.08"
+                android:text="@string/action_sign_out"
+                android:textColor="@color/infra_red"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                app:cornerRadius="4dp"
+                app:strokeColor="@color/infra_red"
+                tools:visibility="visible" />
+
         </LinearLayout>
 
         <Space

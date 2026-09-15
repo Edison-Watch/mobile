@@ -124,6 +124,51 @@ class DeviceAuthClient(
         }
     }
 
+    /**
+     * Revoke the client installation behind an `ewc_` credential, so the phone's
+     * server row is dropped and its grants denied even if the local credential
+     * later leaks. Best-effort: returns true when the gateway confirmed the
+     * revocation (or the credential was already invalid), false when it could not
+     * be reached. Local sign-out should proceed either way.
+     */
+    suspend fun revokeCredential(accessToken: String): Boolean {
+        val response = try {
+            postAuthorized("$apiBaseUrl$PATH_REVOKE", accessToken)
+        } catch (e: DeviceAuthException) {
+            return false
+        }
+        return revocationSucceeded(response.code)
+    }
+
+    /**
+     * Whether a revoke response means the credential is gone. 2xx is a fresh
+     * revocation; 401 means the gateway already considers it invalid/revoked,
+     * which is the same end state. Pure, so it is unit-tested.
+     */
+    internal fun revocationSucceeded(statusCode: Int): Boolean =
+        statusCode in 200..299 || statusCode == 401
+
+    private suspend fun postAuthorized(url: String, bearer: String): HttpResult =
+        withContext(Dispatchers.IO) {
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json")
+                .header("Authorization", "Bearer $bearer")
+                .post(ByteArray(0).toRequestBody(JSON_MEDIA_TYPE))
+                .build()
+            try {
+                httpClient.newCall(request).execute().use { raw ->
+                    HttpResult(raw.code, raw.body?.string().orEmpty())
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                throw DeviceAuthException(
+                    "Could not reach the SealGate gateway. Check the URL and your connection.",
+                )
+            }
+        }
+
     private suspend fun post(url: String, jsonBody: String): HttpResult = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(url)
@@ -189,6 +234,7 @@ class DeviceAuthClient(
         const val PLATFORM_ANDROID = "android"
         const val PATH_CODE = "/api/v1/auth/device/code"
         const val PATH_TOKEN = "/api/v1/auth/device/token"
+        const val PATH_REVOKE = "/api/v1/auth/device/revoke"
         private const val SLOW_DOWN_BACKOFF_SECONDS = 5
         private const val EXPIRED_MESSAGE = "The sign-in code expired. Please try again."
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()

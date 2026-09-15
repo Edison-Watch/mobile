@@ -29,6 +29,7 @@ import ai.sealgate.stdiod.tunnel.DeviceIdentityStore
 import ai.sealgate.stdiod.tunnel.GatewayUrls
 import ai.sealgate.stdiod.tunnel.PendingGrant
 import ai.sealgate.stdiod.tunnel.TunnelState
+import ai.sealgate.stdiod.tunnel.TunnelStopReason
 import ai.sealgate.stdiod.mcp.ComputerAccessibilityService
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CancellationException
@@ -163,6 +164,12 @@ class MainActivity : AppCompatActivity() {
             startDeviceSignIn()
         }
 
+        binding.signOutButton.setOnClickListener {
+            binding.signOutButton.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+            confirmSignOut()
+        }
+        updateSignOutVisibility()
+
         binding.tunnelButton.setOnClickListener {
             binding.tunnelButton.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
             if (tunnelState != null) {
@@ -184,6 +191,7 @@ class MainActivity : AppCompatActivity() {
             }
             TunnelSettings.save(this, config)
             binding.settingsPanel.visibility = View.GONE
+            updateSignOutVisibility()
             TunnelService.start(this, config)
         }
 
@@ -198,6 +206,7 @@ class MainActivity : AppCompatActivity() {
                         TunnelState.Connected -> getString(R.string.tunnel_state_connected)
                         TunnelState.Connecting -> getString(R.string.tunnel_state_connecting)
                         TunnelState.Disconnected -> getString(R.string.tunnel_state_disconnected)
+                        is TunnelState.Unauthorized -> getString(stopReasonStatus(state.reason))
                         null -> getString(R.string.status_stopped)
                     }
                     renderState(state, text)
@@ -281,7 +290,7 @@ class MainActivity : AppCompatActivity() {
             when (state) {
                 TunnelState.Connected -> R.color.circuit_green
                 TunnelState.Connecting -> R.color.signal_amber
-                TunnelState.Disconnected, null -> R.color.infra_red
+                TunnelState.Disconnected, is TunnelState.Unauthorized, null -> R.color.infra_red
             },
         )
         binding.statusText.text = text
@@ -303,10 +312,23 @@ class MainActivity : AppCompatActivity() {
                 TunnelState.Connected -> R.string.tunnel_visual_connected
                 TunnelState.Connecting -> R.string.tunnel_visual_connecting
                 TunnelState.Disconnected -> R.string.tunnel_visual_reconnecting
+                is TunnelState.Unauthorized -> R.string.tunnel_visual_sign_in_required
                 null -> R.string.tunnel_visual_stopped
             },
         )
+        // A terminal auth failure needs the user to act: surface the panel that
+        // holds Sign in (and the gateway/API-key fields) so the fix is one tap away.
+        if (state is TunnelState.Unauthorized) {
+            binding.settingsPanel.visibility = View.VISIBLE
+        }
     }
+
+    private fun stopReasonStatus(reason: TunnelStopReason): Int =
+        when (reason) {
+            TunnelStopReason.CREDENTIAL_REJECTED -> R.string.tunnel_state_sign_in_required
+            TunnelStopReason.PROTOCOL_UNSUPPORTED -> R.string.tunnel_state_update_required
+            TunnelStopReason.ORG_NOT_ENABLED -> R.string.tunnel_state_org_not_enabled
+        }
 
     private fun maybeRequestNotificationPermission() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
@@ -445,6 +467,7 @@ class MainActivity : AppCompatActivity() {
             binding.apiKeyInput.setText(result.accessToken)
             binding.apiKeyLayout.error = null
             binding.settingsPanel.visibility = View.GONE
+            updateSignOutVisibility()
             Toast.makeText(this, R.string.sign_in_success, Toast.LENGTH_SHORT).show()
             TunnelService.start(this, TunnelConfig(gatewayUrl, result.accessToken, result.deviceId))
             PendingSignInStore.clear(this)
@@ -487,6 +510,61 @@ class MainActivity : AppCompatActivity() {
     private fun cancelSignIn() {
         PendingSignInStore.clear(this)
         signInJob?.cancel()
+    }
+
+    /** Show the sign-out button only while a credential is stored. */
+    private fun updateSignOutVisibility() {
+        val hasCredential = TunnelSettings.load(this).authToken.isNotBlank()
+        binding.signOutButton.visibility = if (hasCredential) View.VISIBLE else View.GONE
+    }
+
+    private fun confirmSignOut() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.sign_out_dialog_title)
+            .setMessage(R.string.sign_out_dialog_message)
+            .setPositiveButton(R.string.action_sign_out) { _, _ -> signOut() }
+            .setNegativeButton(R.string.action_cancel, null)
+            .show()
+    }
+
+    /**
+     * Stop the tunnel, forget the local credential, and best-effort revoke it in
+     * the dashboard. Local sign-out always completes; the revoke is attempted only
+     * for an OAuth (`ewc_`) credential and its failure only downgrades the toast.
+     */
+    private fun signOut() {
+        val stored = TunnelSettings.load(this)
+        val token = stored.authToken
+        val apiBase = GatewayUrls.apiBaseFromWs(stored.gatewayUrl)
+        // A pasted API key is not ours to revoke through the device endpoint; only
+        // an OAuth `ewc_` credential is. (apiBase != null is checked below, both to
+        // guard the call and to smart-cast it for the request.)
+        val canRevoke = token.startsWith("ewc_")
+
+        // Tear down every trace of the session on this device first, so the UI is
+        // honestly signed out even if the revoke call below never returns.
+        signInJob?.cancel()
+        PendingSignInStore.clear(this)
+        TunnelService.stop(this)
+        TunnelSettings.clearCredential(this)
+        binding.apiKeyInput.setText("")
+        binding.apiKeyLayout.error = null
+        binding.settingsPanel.visibility = View.VISIBLE
+        updateSignOutVisibility()
+
+        if (!canRevoke || apiBase == null) {
+            Toast.makeText(this, R.string.sign_out_done, Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, R.string.sign_out_in_progress, Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch {
+            val revoked = DeviceAuthClient(apiBase).revokeCredential(token)
+            Toast.makeText(
+                this@MainActivity,
+                if (revoked) R.string.sign_out_done else R.string.sign_out_revoke_failed,
+                if (revoked) Toast.LENGTH_SHORT else Toast.LENGTH_LONG,
+            ).show()
+        }
     }
 
     private fun showSignInError(message: String?) {
