@@ -35,6 +35,7 @@ class LiquidMetalBorderView(context: Context) : View(context) {
 
     private var mode: ComputerUseBorderOverlay.Mode = ComputerUseBorderOverlay.Mode.OBSERVE
     private var startNanos = 0L
+    private var animateUntilNanos = 0L
     private var animating = false
 
     private val strokeRect = RectF()
@@ -57,6 +58,12 @@ class LiquidMetalBorderView(context: Context) : View(context) {
 
     private val frameCallback: Choreographer.FrameCallback = Choreographer.FrameCallback {
         if (!animating) return@FrameCallback
+        if (System.nanoTime() >= animateUntilNanos) {
+            // Calls stopped arriving; quiesce and clear the frame (the window may stay
+            // attached to hold the screen awake, but nothing is drawn while idle).
+            stopAnimating()
+            return@FrameCallback
+        }
         invalidate()
         Choreographer.getInstance().postFrameCallback(frameCallback)
     }
@@ -68,13 +75,23 @@ class LiquidMetalBorderView(context: Context) : View(context) {
         isFocusable = false
     }
 
-    fun setMode(mode: ComputerUseBorderOverlay.Mode) {
+    private fun setMode(mode: ComputerUseBorderOverlay.Mode) {
         if (this.mode == mode) return
         this.mode = mode
         sweepShader = null
     }
 
-    fun startAnimating() {
+    /**
+     * Show/refresh the frame in [mode] and keep it animating for at least
+     * [FRAME_LINGER_MILLIS] longer. Safe to call repeatedly: the frame animates
+     * continuously while calls keep arriving and quiesces on its own (clearing to
+     * transparent) once they stop. The animation time base ([startNanos]) is set only
+     * when starting from idle, so repeated pokes extend the frame without a visual
+     * jump.
+     */
+    fun poke(mode: ComputerUseBorderOverlay.Mode) {
+        setMode(mode)
+        animateUntilNanos = System.nanoTime() + FRAME_LINGER_MILLIS * 1_000_000L
         if (animating) return
         animating = true
         startNanos = System.nanoTime()
@@ -82,8 +99,12 @@ class LiquidMetalBorderView(context: Context) : View(context) {
     }
 
     fun stopAnimating() {
+        if (!animating) return
         animating = false
         Choreographer.getInstance().removeFrameCallback(frameCallback)
+        // Repaint once so the now-idle frame clears. The window itself stays attached
+        // (holding the screen awake); onDraw draws nothing while not animating.
+        invalidate()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -97,6 +118,9 @@ class LiquidMetalBorderView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
+        // Idle: draw nothing. The window may stay attached to keep the screen awake,
+        // but the frame is only painted while actively signalling.
+        if (!animating) return
         val inset = borderWidthPx / 2f
         strokeRect.set(inset, inset, width - inset, height - inset)
         val timeSeconds = (System.nanoTime() - startNanos) / 1_000_000_000f
@@ -153,6 +177,9 @@ class LiquidMetalBorderView(context: Context) : View(context) {
     private data class Palette(val a: Int, val b: Int, val c: Int, val d: Int, val e: Int)
 
     private companion object {
+        /** How long the frame keeps animating after the last [poke]. */
+        const val FRAME_LINGER_MILLIS = 1_500L
+
         const val BORDER_WIDTH_DP = 6f
         const val CORNER_RADIUS_DP = 28f
         const val SWEEP_DEGREES_PER_SEC = 60f
