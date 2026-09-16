@@ -82,8 +82,12 @@ class LiquidMetalBorderView(context: Context) : View(context) {
     }
 
     fun stopAnimating() {
+        if (!animating) return
         animating = false
         Choreographer.getInstance().removeFrameCallback(frameCallback)
+        // Repaint once so the now-idle frame clears. The window itself stays attached
+        // (holding the screen awake); onDraw draws nothing while not animating.
+        invalidate()
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -97,6 +101,9 @@ class LiquidMetalBorderView(context: Context) : View(context) {
     }
 
     override fun onDraw(canvas: Canvas) {
+        // Idle: draw nothing. The window may stay attached to keep the screen awake,
+        // but the frame is only painted while actively signalling.
+        if (!animating) return
         val inset = borderWidthPx / 2f
         strokeRect.set(inset, inset, width - inset, height - inset)
         val timeSeconds = (System.nanoTime() - startNanos) / 1_000_000_000f
