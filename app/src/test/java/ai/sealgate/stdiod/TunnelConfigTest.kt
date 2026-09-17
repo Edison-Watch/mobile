@@ -1,6 +1,8 @@
 package ai.sealgate.stdiod
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -31,5 +33,19 @@ class TunnelConfigTest {
             authToken = "token",
         )
         assertFalse(config.isValid())
+    }
+
+    @Test
+    fun `device id defaults to null and does not affect validity`() {
+        val apiKey = TunnelConfig(
+            gatewayUrl = "wss://gateway.sealgate.ai/tunnel",
+            authToken = "ew_key",
+        )
+        assertNull(apiKey.deviceId)
+        assertTrue(apiKey.isValid())
+
+        val oauth = apiKey.copy(authToken = "ewc_token", deviceId = "ewd_device")
+        assertEquals("ewd_device", oauth.deviceId)
+        assertTrue(oauth.isValid())
     }
 }

@@ -22,7 +22,8 @@ object NotificationTunnelArtwork {
 
     @Synchronized
     fun render(context: Context, state: TunnelState, frame: Int = 0): Bitmap {
-        val frameIndex = if (state == TunnelState.Disconnected) 0 else frame % FRAME_COUNT
+        val isStatic = state == TunnelState.Disconnected || state is TunnelState.Unauthorized
+        val frameIndex = if (isStatic) 0 else frame % FRAME_COUNT
         val key = FrameKey(state, frameIndex)
         if (cachedState != state) {
             frameCache.clear()
@@ -36,13 +37,14 @@ object NotificationTunnelArtwork {
         val route = when (state) {
             TunnelState.Connected -> context.getColor(R.color.circuit_green)
             TunnelState.Connecting -> context.getColor(R.color.signal_amber)
-            TunnelState.Disconnected -> context.getColor(R.color.infra_red)
+            TunnelState.Disconnected, is TunnelState.Unauthorized ->
+                context.getColor(R.color.infra_red)
         }
 
         canvas.drawColor(context.getColor(R.color.baseline_black))
         drawGrid(canvas, paint, context.getColor(R.color.grid_dark))
         drawRoute(canvas, paint, route, frameIndex)
-        if (state == TunnelState.Disconnected) {
+        if (isStatic) {
             drawDisconnectedPlug(context, canvas, paint, route)
         } else {
             drawSecureLock(canvas, paint, route, context.getColor(R.color.baseline_black))

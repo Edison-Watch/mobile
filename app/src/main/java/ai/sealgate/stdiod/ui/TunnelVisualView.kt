@@ -97,7 +97,7 @@ class TunnelVisualView @JvmOverloads constructor(
         val color = when (state) {
             TunnelState.Connected -> green
             TunnelState.Connecting -> amber
-            TunnelState.Disconnected, null -> red
+            TunnelState.Disconnected, is TunnelState.Unauthorized, null -> red
         }
         val startX = 48f * density
         val endX = w - 64f * density
@@ -113,7 +113,7 @@ class TunnelVisualView @JvmOverloads constructor(
         )
         canvas.drawLine(startX, centerY, endX, centerY, paint)
         paint.pathEffect = null
-        if (state == null || state == TunnelState.Disconnected) {
+        if (state == null || state == TunnelState.Disconnected || state is TunnelState.Unauthorized) {
             drawDisconnectedPlug(canvas, w / 2f, centerY, color)
         } else {
             drawSecureLock(canvas, w / 2f, centerY, color)
@@ -256,6 +256,7 @@ class TunnelVisualView @JvmOverloads constructor(
             !isAttachedToWindow ||
             state == null ||
             state == TunnelState.Disconnected ||
+            state is TunnelState.Unauthorized ||
             !animationsEnabled()
         ) return
         animator = ValueAnimator.ofFloat(0f, 1f).apply {
