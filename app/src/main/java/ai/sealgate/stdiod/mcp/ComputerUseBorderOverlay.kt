@@ -14,9 +14,18 @@ import android.view.WindowManager
  * touchable and not focusable, so the gestures the control tools dispatch pass
  * straight through to the app underneath.
  *
- * Lifecycle is transient: each observe/control call [signal]s the overlay, which
- * shows (or refreshes) the animated frame and schedules a debounced hide once the
- * agent goes quiet. Nothing is drawn — and no GPU work happens — while idle.
+ * Lifecycle: each observe/control call [signal]s the overlay, which attaches the
+ * window (if needed) and [pokes][LiquidMetalBorderView.poke] the frame so it animates.
+ * The frame quiesces on its own shortly after the calls stop — the view owns that
+ * timing — and nothing is drawn (no GPU work) while idle. The window itself stays
+ * attached longer ([KEEP_AWAKE_MILLIS]) purely to hold the screen awake between
+ * commands: [WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON] keeps the display from
+ * dimming or sleeping for as long as this window is attached, with no WAKE_LOCK
+ * permission and no device-wide timeout change. The window is removed once no command
+ * has arrived for the full keep-awake window, releasing the screen back to the system
+ * timeout. FLAG_KEEP_SCREEN_ON only prevents an already-on screen from sleeping; it
+ * cannot wake a screen that is already off, which is consistent with
+ * [AndroidComputerSource] refusing to act while the screen is off.
  *
  * The border DOES appear in accessibility screenshots (it is composited onto the
  * display like any window). It is kept thin so it only touches the extreme screen
@@ -32,7 +41,7 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
     private val windowManager = service.getSystemService(WindowManager::class.java)
     private var view: LiquidMetalBorderView? = null
 
-    private val hideRunnable = Runnable { removeView() }
+    private val removeRunnable = Runnable { removeView() }
 
     /**
      * Mark computer-use activity of [mode]. Safe to call from any thread; the work
@@ -41,17 +50,16 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
     fun signal(mode: Mode) {
         main.post {
             ensureAttached()
-            view?.setMode(mode)
-            view?.startAnimating()
-            main.removeCallbacks(hideRunnable)
-            main.postDelayed(hideRunnable, LINGER_MILLIS)
+            view?.poke(mode)
+            main.removeCallbacks(removeRunnable)
+            main.postDelayed(removeRunnable, KEEP_AWAKE_MILLIS)
         }
     }
 
     /** Tear down the overlay for good. Call when the service unbinds or is destroyed. */
     fun destroy() {
         main.post {
-            main.removeCallbacks(hideRunnable)
+            main.removeCallbacks(removeRunnable)
             removeView()
         }
     }
@@ -68,7 +76,8 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
             PixelFormat.TRANSLUCENT,
         )
         if (runCatching { manager.addView(overlay, params) }.isSuccess) {
@@ -84,7 +93,15 @@ class ComputerUseBorderOverlay(private val service: AccessibilityService) {
     }
 
     private companion object {
-        /** How long the frame lingers after the last observe/control call. */
-        const val LINGER_MILLIS = 1_500L
+        /**
+         * How long the (blank, non-drawing) window stays attached after the last
+         * command, holding the screen awake between actions via FLAG_KEEP_SCREEN_ON.
+         * This is an idle timeout, not a session length: computer use has no explicit
+         * end signal (it is a stream of discrete observe/control calls), so the window
+         * is released once no command has arrived for this long. A gap LONGER than this
+         * between two consecutive actions will let the screen dim/sleep mid-session; 60s
+         * comfortably covers normal per-action latency (model + network + UI settle).
+         */
+        const val KEEP_AWAKE_MILLIS = 60_000L
     }
 }
