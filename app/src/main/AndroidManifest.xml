@@ -81,6 +81,10 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ExecutionLogActivity"
+            android:exported="false" />
+
         <service
             android:name=".TunnelService"
             android:exported="false"
