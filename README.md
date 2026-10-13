@@ -107,7 +107,8 @@ per-file limit, and 32 MiB total virtual filesystem limit.
 
 **Just want to try it?** Download the latest APK from
 [Releases](https://github.com/Edison-Watch/mobile/releases/latest), allow
-installs from unknown sources, and skip to step 2. To build it yourself:
+installs from unknown sources, and skip to step 2. If an update won't
+install over an older release, uninstall the old app first. To build it yourself:
 
 1. Open the project in Android Studio (**File → Open**, select this folder) and
    let it sync, **or** build from the command line:

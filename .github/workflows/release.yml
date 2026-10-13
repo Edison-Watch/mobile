@@ -3,11 +3,6 @@ name: Release APK
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Tag to release (created on the current commit if missing)
-        required: true
 
 permissions:
   contents: write
@@ -17,7 +12,7 @@ jobs:
     name: Build & publish APK
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ inputs.tag || github.ref_name }}
+      TAG: ${{ github.ref_name }}
       DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
     steps:
       - name: Checkout
@@ -35,6 +30,8 @@ jobs:
       # Optional: a stable debug keystore lets users upgrade in place between
       # releases. Without it each run signs with a fresh key, so installing a
       # newer release over an older one requires uninstalling first.
+      # The keystore must use the standard debug credentials AGP expects:
+      # store/key password "android", key alias "androiddebugkey".
       - name: Install stable debug keystore
         if: env.DEBUG_KEYSTORE_BASE64 != ''
         run: |
@@ -53,7 +50,6 @@ jobs:
           apk="sealgate-mobile-tunnel-${TAG}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$apk"
           gh release create "$TAG" "$apk" \
-            --target "$GITHUB_SHA" \
             --title "Mobile Tunnel $TAG" \
             --notes-file .github/release-notes.md \
             --generate-notes
