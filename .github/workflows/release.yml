@@ -18,6 +18,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # versionName/versionCode in app/build.gradle.kts are the source of
+      # truth; bump them (versionCode must increase) before tagging.
+      - name: Check tag matches versionName
+        run: |
+          version=$(sed -n 's/^ *versionName = "\(.*\)"/\1/p' app/build.gradle.kts)
+          if [ "v$version" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match versionName $version in app/build.gradle.kts"
+            exit 1
+          fi
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
