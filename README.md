@@ -2,7 +2,9 @@
   <img src=".github/assets/banner.png" alt="SealGate — connect &amp; govern how AI interacts with your data" width="820">
 </p>
 
-<h1 align="center">Mobile-Stdiod</h1>
+<h1 align="center">SealGate Mobile Tunnel</h1>
+
+<p align="center"><code>mobile-stdiod</code></p>
 
 <img src=".github/assets/android.svg" alt="Android" height="16"> The Android
 client for the SealGate **stdio tunnel** — a device-side daemon that lets cloud
@@ -17,6 +19,22 @@ The tunnel speaks the same wire protocol as the desktop `sealgate-stdiod`
 daemon (protocol v2; see `schema/tunnel-protocol.json`). Where the desktop
 daemon spawns `npx`/`uvx` subprocesses, this app answers MCP requests from
 **in-process Kotlin modules** — a phone can't spawn stdio servers.
+
+### Demo: an agent flying a drone
+
+We gave 7 models this phone, the DJI app and a DJI Neo, and asked each to
+"find a wooden table and approach; land on top while controlling your camera".
+Codex landed it in one shot.
+[Watch it](https://x.com/Eito_Miyamura/status/2110017403656835445) ·
+[write-up](https://sealgate.ai/blog/mobile-tunnel-agents-control-android-devices).
+
+To reproduce: install the
+[latest release APK](https://github.com/Edison-Watch/mobile/releases/latest)
+(a debug build, the only public build with computer control), sign in, add
+Mobile Bash in the dashboard (see [Getting started](#getting-started)), turn
+on **Computer control** in the app and enable **Mobile Tunnel computer
+control** in Android's Accessibility settings. Then point any MCP agent at
+SealGate and ask it to drive an app via `computer`.
 
 ### Mobile Bash
 
@@ -86,6 +104,10 @@ per-file limit, and 32 MiB total virtual filesystem limit.
 - Android SDK Platform 35, min SDK 26
 
 ## Getting started
+
+**Just want to try it?** Download the latest APK from
+[Releases](https://github.com/Edison-Watch/mobile/releases/latest), allow
+installs from unknown sources, and skip to step 2. To build it yourself:
 
 1. Open the project in Android Studio (**File → Open**, select this folder) and
    let it sync, **or** build from the command line:
