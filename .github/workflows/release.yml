@@ -59,7 +59,12 @@ jobs:
         run: |
           apk="sealgate-mobile-tunnel-${TAG}-debug.apk"
           cp app/build/outputs/apk/debug/app-debug.apk "$apk"
-          gh release create "$TAG" "$apk" \
-            --title "Mobile Tunnel $TAG" \
-            --notes-file .github/release-notes.md \
-            --generate-notes
+          # A release created from the GitHub UI already exists: attach to it.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$apk"
+          else
+            gh release create "$TAG" "$apk" \
+              --title "Mobile Tunnel $TAG" \
+              --notes-file .github/release-notes.md \
+              --generate-notes
+          fi
