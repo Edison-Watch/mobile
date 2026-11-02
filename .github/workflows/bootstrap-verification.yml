@@ -31,3 +31,9 @@ jobs:
           path: |
             gradle/wrapper/gradle-wrapper.properties
             gradle/verification-metadata.xml
+      - name: Dump files to log
+        run: |
+          tar czf v.tgz gradle/wrapper/gradle-wrapper.properties gradle/verification-metadata.xml
+          sha256sum v.tgz
+          echo "::stop-commands::nocmd"
+          echo BEGIN_B64; base64 -w0 v.tgz; echo; echo END_B64
