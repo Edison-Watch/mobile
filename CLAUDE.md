@@ -19,6 +19,7 @@ Caveman-terse. Android client for SealGate stdio tunnel. Details: README.md.
 - Bash CLI mappings live in `MobileCommandRouter`; keep new module tools mapped there. Do not add host FS, process, network, or language-runtime bindings.
 - Protocol: `schema/`. `golden-frames/` = codec fixtures (`GoldenFramesTest`). Change -> update schema+fixtures across 3 repos in lockstep (README).
 - Versions: `gradle/libs.versions.toml` = source of truth. Use `libs.*`. Don't copy numbers here (they rot).
+- Deps checksum-verified (`gradle/verification-metadata.xml`). Bump -> CI fails until regenerated: dispatch workflow "Regenerate Gradle verification metadata" on branch, commit its output. Wrapper zip pinned by `distributionSha256Sum`; Gradle bump -> update it too.
 
 ## Rules
 - Buildable + installable every step.
